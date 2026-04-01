@@ -6,9 +6,15 @@ export async function middleware(request: NextRequest) {
     request: { headers: request.headers },
   })
 
-  // We are not using process.env here strictly assuming it works via next dev env injection
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('⚠️ [Middleware] Supabase environment variables are missing! Skipping auth checks.');
+    }
+    return supabaseResponse;
+  }
 
   const supabase = createServerClient(
     supabaseUrl,
