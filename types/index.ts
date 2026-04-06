@@ -11,7 +11,7 @@ public: {
   Tables: {
     entities: {
       Row: {
-        id: string
+        entity_id: string
         entity_code: string | null
         legal_name: string | null
         trading_name: string | null

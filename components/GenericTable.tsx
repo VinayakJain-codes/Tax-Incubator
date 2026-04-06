@@ -103,7 +103,7 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onH
             ) : (
               paginatedData.map((row, i) => (
                 <tr
-                  key={row.id || i}
+                  key={row.id || row.entity_id || i}
                   className="transition-colors duration-150 cursor-default hover:bg-gray-50"
                 >
                   {config.columns.map(col => (

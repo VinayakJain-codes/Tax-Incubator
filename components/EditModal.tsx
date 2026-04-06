@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import type { SheetDef } from '../lib/sheet-config';
+import toast from 'react-hot-toast';
 
 interface EditModalProps {
   isOpen: boolean;
@@ -21,6 +22,20 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
     }
   }, [isOpen, initialData]);
 
+  // Auto-calculate Total Shareholding for Entities
+  useEffect(() => {
+    if (config.table === 'entities') {
+      const sh1 = Number(formData.shareholding_age_1) || 0;
+      const sh2 = Number(formData.shareholding_age_2) || 0;
+      const sh3 = Number(formData.shareholding_age_3) || 0;
+      const sum = sh1 + sh2 + sh3;
+      
+      if (formData.total_shareholding !== sum) {
+        setFormData(prev => ({ ...prev, total_shareholding: sum }));
+      }
+    }
+  }, [formData.shareholding_age_1, formData.shareholding_age_2, formData.shareholding_age_3, config.table]);
+
   if (!isOpen) return null;
 
   const hasChanges = Object.keys(formData).some(
@@ -29,6 +44,31 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // 1. Check required fields
+    const missingRequired = config.columns.find(
+      col => col.required && config.editableFields.includes(col.key) && !formData[col.key]
+    );
+    if (missingRequired) {
+      toast.error(`"${missingRequired.label}" is required.`);
+      return;
+    }
+
+    // 2. Custom logical validations (Entities table)
+    if (config.table === 'entities') {
+      const sh1 = Number(formData.shareholding_age_1) || 0;
+      const sh2 = Number(formData.shareholding_age_2) || 0;
+      const sh3 = Number(formData.shareholding_age_3) || 0;
+      const total = Number(formData.total_shareholding) || 0;
+
+      // Only reject if there are actually any shareholding values entered, 
+      // or if total is specified and doesn't match the sum
+      if ((sh1 > 0 || sh2 > 0 || sh3 > 0 || total > 0) && (sh1 + sh2 + sh3 !== total)) {
+        toast.error('Total Shareholding must exactly equal the sum of the individual shareholding percentages.');
+        return;
+      }
+    }
+
     if (!hasChanges) return onClose();
     
     setIsSaving(true);
@@ -84,15 +124,31 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
                     </label>
                     
                     {col.options ? (
-                      <select 
-                        value={val}
-                        onChange={e => handleChange(col.key, e.target.value)}
-                        className="w-full px-3 py-2 text-sm focus:outline-none"
-                        style={inputStyle}
-                      >
-                        <option value="">Select...</option>
-                        {col.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
+                      <div className="space-y-2">
+                        <select 
+                          value={col.options.includes(val) ? val : (val ? 'Other' : '')}
+                          onChange={e => {
+                            const selected = e.target.value;
+                            handleChange(col.key, selected);
+                          }}
+                          className="w-full px-3 py-2 text-sm focus:outline-none"
+                          style={inputStyle}
+                        >
+                          <option value="">Select...</option>
+                          {col.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                        {(col.options.includes('Other') && (val === 'Other' || (val && !col.options.includes(val)))) && (
+                          <input 
+                            type="text"
+                            placeholder={`Specify other ${col.label}...`}
+                            value={val === 'Other' ? '' : val}
+                            onChange={e => handleChange(col.key, e.target.value)}
+                            className="w-full px-3 py-2 text-sm mt-1 focus:outline-none border-blue-400"
+                            style={{...inputStyle, borderColor: '#60A5FA'}}
+                            autoFocus
+                          />
+                        )}
+                      </div>
                     ) : col.type === 'boolean' ? (
                       <select 
                         value={formData[col.key] === true ? 'true' : formData[col.key] === false ? 'false' : ''}
@@ -116,8 +172,9 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
                       <input 
                         type="number"
                         value={val}
+                        readOnly={config.table === 'entities' && col.key === 'total_shareholding'}
                         onChange={e => handleChange(col.key, Number(e.target.value))}
-                        className="w-full px-3 py-2 text-sm focus:outline-none"
+                        className={`w-full px-3 py-2 text-sm focus:outline-none ${config.table === 'entities' && col.key === 'total_shareholding' ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                         style={inputStyle}
                       />
                     ) : (

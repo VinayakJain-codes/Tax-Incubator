@@ -1,9 +1,9 @@
 -- 1. Create Core Tables
 
 create table public.entities (
-  id uuid primary key default gen_random_uuid(),
+  entity_id text primary key,
   entity_code text,
-  legal_name text,
+  legal_name text NOT NULL,
   trading_name text,
   holding_company text,
   jurisdiction text,
@@ -17,15 +17,42 @@ create table public.entities (
   entity_status text,
   risk_rating text,
   remarks text,
+  shareholder_1 text,
+  shareholding_age_1 numeric,
+  shareholder_2 text,
+  shareholding_age_2 numeric,
+  shareholder_3 text,
+  shareholding_age_3 numeric,
+  total_shareholding numeric,
+  address_type text,
+  full_address text,
+  regulatory_group_any text,
+  risk_rating_any text,
+  logo_asset_image text,
+  entity_legal_name text,
+  registration__license_no text,
+  registration_date date,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   updated_by uuid references auth.users(id),
   is_deleted boolean default false
 );
 
+-- Validation constraints and indexes for entities
+CREATE UNIQUE INDEX IF NOT EXISTS unique_entity_code_active ON public.entities (entity_code) WHERE is_deleted = false;
+
+ALTER TABLE public.entities ADD CONSTRAINT check_shareholding_sum 
+CHECK (
+  total_shareholding IS NULL OR total_shareholding = (
+    COALESCE(shareholding_age_1, 0) + 
+    COALESCE(shareholding_age_2, 0) + 
+    COALESCE(shareholding_age_3, 0)
+  )
+);
+
 create table public.addresses (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  entity_id text references public.entities(entity_id),
   address_type text,
   address_line_1 text,
   address_line_2 text,
@@ -41,7 +68,7 @@ create table public.addresses (
 
 create table public.directors_officers (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  entity_id text references public.entities(entity_id),
   full_name text,
   role text,
   appointment_date date,
@@ -49,6 +76,9 @@ create table public.directors_officers (
   email text,
   phone text,
   passport_no text,
+  person_id text,
+  entity_legal_name text,
+  photo_asset_image text,
   active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
@@ -58,7 +88,8 @@ create table public.directors_officers (
 
 create table public.ubo_register (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  ubo_id text, -- Human-readable ID e.g. U-001
+  entity_id text references public.entities(entity_id),
   full_name text,
   ownership_pct numeric,
   nationality text,
@@ -67,6 +98,7 @@ create table public.ubo_register (
   email text,
   phone text,
   passport_no text,
+  photo_asset_image text,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   updated_by uuid references auth.users(id),
@@ -75,7 +107,8 @@ create table public.ubo_register (
 
 create table public.bank_accounts (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  bank_account_id text, -- Human-readable ID e.g. B-001
+  entity_id text references public.entities(entity_id),
   bank_name text,
   country text,
   account_name text,
@@ -93,8 +126,9 @@ create table public.bank_accounts (
 
 create table public.signatories (
   id uuid primary key default gen_random_uuid(),
-  bank_account_id uuid references public.bank_accounts(id),
-  person_id uuid, -- Reference to either directors_officers or ubo_register depending on logic, keeping unstructured for flexibility
+  signatory_id text, -- Human-readable ID e.g. SIG-001
+  bank_account_id text, -- References bank_accounts.bank_account_id (human-readable)
+  person_id text, -- Reference to directors_officers or ubo_register person_id / ubo_id
   signing_authority text,
   limit_amount numeric,
   active boolean default true,
@@ -106,7 +140,7 @@ create table public.signatories (
 
 create table public.vat_matrix (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  entity_id text references public.entities(entity_id),
   vat_number text,
   tax_regime text,
   filing_frequency text,
@@ -122,7 +156,7 @@ create table public.vat_matrix (
 
 create table public.ct_matrix (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  entity_id text references public.entities(entity_id),
   jurisdiction text,
   tin text,
   ct_applicable boolean,
@@ -132,6 +166,7 @@ create table public.ct_matrix (
   economic_substance boolean,
   transfer_pricing boolean,
   data_protection boolean,
+  data_protection_regime text, -- e.g. GDPR, UAE PDPL
   notes text,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
@@ -141,7 +176,7 @@ create table public.ct_matrix (
 
 create table public.licenses (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  entity_id text references public.entities(entity_id),
   licensing_authority text,
   expiry_date date,
   license_link text,
@@ -155,7 +190,7 @@ create table public.licenses (
 
 create table public.auditors (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  entity_id text references public.entities(entity_id),
   auditor_code text,
   firm_name text,
   lead_partner text,
@@ -173,7 +208,8 @@ create table public.auditors (
 
 create table public.document_control (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  doc_id text, -- Human-readable ID e.g. DOC-001
+  entity_id text references public.entities(entity_id),
   doc_type text,
   description text,
   issue_date date,
@@ -189,7 +225,9 @@ create table public.document_control (
 
 create table public.controls_log (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  control_id text, -- Human-readable ID e.g. CTRL-001
+  date_logged date default current_date,
+  entity_id text references public.entities(entity_id),
   control_type text,
   description text,
   owner text,
@@ -207,7 +245,8 @@ create table public.controls_log (
 
 create table public.renewal_calendar (
   id uuid primary key default gen_random_uuid(),
-  entity_id uuid references public.entities(id),
+  item_id text, -- Human-readable ID e.g. CAL-0001
+  entity_id text references public.entities(entity_id),
   item_type text,
   description text,
   due_date date,
@@ -225,8 +264,8 @@ create table public.renewal_calendar (
 create table public.audit_log (
   id uuid primary key default gen_random_uuid(),
   table_name text not null,
-  record_id uuid not null,
-  entity_id uuid, -- Extracted dynamically from record if available, else null
+  record_id text not null,
+  entity_id text, -- Extracted dynamically from record if available, else null
   field_name text not null,
   old_value text,
   new_value text,

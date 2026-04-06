@@ -39,11 +39,14 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
 
   const handleSaveEdit = async (newData: Record<string, any>) => {
     try {
-      await logEditChanges(config.table, newData.id, editRow, newData);
+      const pk = config.table === 'entities' ? 'entity_id' : 'id';
+      const recordId = newData[pk];
+      
+      await logEditChanges(config.table, recordId, editRow, newData);
 
       const { error } = await (supabase.from(config.table) as any)
         .update(newData)
-        .eq('id', newData.id);
+        .eq(pk, recordId);
 
       if (error) throw error;
       toast.success('Record updated');
@@ -120,7 +123,16 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
         isOpen={showNew}
         onClose={() => setShowNew(false)}
         config={config}
-        initialData={{}}
+        initialData={
+          config.table === 'entities' ? { entity_code: 'E-' } :
+          config.table === 'bank_accounts' ? { bank_account_id: 'B-' } :
+          config.table === 'ubo_register' ? { ubo_id: 'U-' } :
+          config.table === 'document_control' ? { doc_id: 'DOC-' } :
+          config.table === 'controls_log' ? { control_id: 'CTRL-' } :
+          config.table === 'renewal_calendar' ? { item_id: 'CAL-' } :
+          config.table === 'auditors' ? { auditor_code: 'A-' } :
+          { entity_id: 'E-' } // Fallback for secondary sheets linking to entities
+        }
         onSave={handleCreate}
       />
 
@@ -128,7 +140,7 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
       <RecordHistory
         isOpen={!!historyRow}
         onClose={() => setHistoryRow(null)}
-        recordId={historyRow?.id || null}
+        recordId={historyRow?.id || historyRow?.entity_id || null}
         title={`Audit Trail — ${historyRow?.[config.sortDefault] || 'Record'}`}
       />
     </div>
