@@ -124,7 +124,7 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
         onClose={() => setShowNew(false)}
         config={config}
         initialData={
-          config.table === 'entities' ? { entity_code: 'E-' } :
+          config.table === 'entities' ? { entity_id: 'E-' } :
           config.table === 'bank_accounts' ? { bank_account_id: 'B-' } :
           config.table === 'ubo_register' ? { ubo_id: 'U-' } :
           config.table === 'document_control' ? { doc_id: 'DOC-' } :

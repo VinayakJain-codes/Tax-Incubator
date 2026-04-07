@@ -50,7 +50,7 @@ export const SHEET_CONFIG: Record<string, SheetDef> = {
       'shareholder_3', 'shareholding_age_3', 'total_shareholding', 'remarks'
     ],
     columns: [
-      { key: 'entity_code', label: 'Entity ID', type: 'text', editable: false },
+      { key: 'entity_id', label: 'Entity ID', type: 'text', editable: true, required: true },
       { key: 'legal_name', label: 'Entity Legal Name', type: 'text', editable: true, required: true },
       { key: 'trading_name', label: 'Trading Name', type: 'text', editable: true },
       { key: 'holding_company', label: 'Holding Company', type: 'text', editable: true },

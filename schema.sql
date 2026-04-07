@@ -90,6 +90,7 @@ create table public.ubo_register (
   id uuid primary key default gen_random_uuid(),
   ubo_id text, -- Human-readable ID e.g. U-001
   entity_id text references public.entities(entity_id),
+  entity_legal_name text, -- auto-synced from entities.legal_name
   full_name text,
   ownership_pct numeric,
   nationality text,
@@ -109,6 +110,7 @@ create table public.bank_accounts (
   id uuid primary key default gen_random_uuid(),
   bank_account_id text, -- Human-readable ID e.g. B-001
   entity_id text references public.entities(entity_id),
+  entity_legal_name text, -- auto-synced from entities.legal_name
   bank_name text,
   country text,
   account_name text,
@@ -141,6 +143,7 @@ create table public.signatories (
 create table public.vat_matrix (
   id uuid primary key default gen_random_uuid(),
   entity_id text references public.entities(entity_id),
+  entity_legal_name text, -- auto-synced from entities.legal_name
   vat_number text,
   tax_regime text,
   filing_frequency text,
@@ -157,6 +160,7 @@ create table public.vat_matrix (
 create table public.ct_matrix (
   id uuid primary key default gen_random_uuid(),
   entity_id text references public.entities(entity_id),
+  entity_legal_name text, -- auto-synced from entities.legal_name
   jurisdiction text,
   tin text,
   ct_applicable boolean,
@@ -177,6 +181,7 @@ create table public.ct_matrix (
 create table public.licenses (
   id uuid primary key default gen_random_uuid(),
   entity_id text references public.entities(entity_id),
+  entity_legal_name text, -- auto-synced from entities.legal_name
   licensing_authority text,
   expiry_date date,
   license_link text,
@@ -191,6 +196,7 @@ create table public.licenses (
 create table public.auditors (
   id uuid primary key default gen_random_uuid(),
   entity_id text references public.entities(entity_id),
+  entity_legal_name text, -- auto-synced from entities.legal_name
   auditor_code text,
   firm_name text,
   lead_partner text,
@@ -247,6 +253,7 @@ create table public.renewal_calendar (
   id uuid primary key default gen_random_uuid(),
   item_id text, -- Human-readable ID e.g. CAL-0001
   entity_id text references public.entities(entity_id),
+  entity_legal_name text, -- auto-synced from entities.legal_name
   item_type text,
   description text,
   due_date date,
@@ -280,30 +287,53 @@ create table public.audit_log (
 
 create or replace function log_audit()
 returns trigger as $$
-declare col text; old_val text; new_val text;
+declare 
+  col text; 
+  old_val text; 
+  new_val text;
+  rec_id text;
+  v_user_id uuid;
+  v_user_email text;
 begin
-  foreach col in array(
+  -- Get current user context from Supabase Auth
+  v_user_id := auth.uid();
+  v_user_email := auth.jwt() ->> 'email';
+
+  -- Get record ID: support both 'id' (uuid) and 'entity_id' (text) as primary key
+  if TG_OP = 'DELETE' then
+    rec_id := COALESCE(
+      (row_to_json(OLD) ->> 'entity_id'),
+      (row_to_json(OLD) ->> 'id')
+    );
+  else
+    rec_id := COALESCE(
+      (row_to_json(NEW) ->> 'entity_id'),
+      (row_to_json(NEW) ->> 'id')
+    );
+  end if;
+
+  for col in
     select column_name::text 
     from information_schema.columns 
     where table_name = TG_TABLE_NAME
     and table_schema = 'public'
-  )
   loop
-    old_val := CASE WHEN TG_OP = 'INSERT' 
-               THEN NULL 
-               ELSE (row_to_json(OLD) ->> col) END;
-    new_val := (row_to_json(NEW) ->> col);
+    old_val := CASE WHEN TG_OP = 'INSERT' THEN NULL ELSE (row_to_json(OLD) ->> col) END;
+    new_val := CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE (row_to_json(NEW) ->> col) END;
+    
     if old_val is distinct from new_val then
       insert into audit_log(
         table_name, record_id, field_name,
-        old_value, new_value, action, changed_at
+        old_value, new_value, action, changed_at,
+        changed_by_id, changed_by_email
       ) values (
-        TG_TABLE_NAME, NEW.id, col,
-        old_val, new_val, TG_OP, now()
+        TG_TABLE_NAME, rec_id, col,
+        old_val, new_val, TG_OP, now(),
+        v_user_id, v_user_email
       );
     end if;
   end loop;
-  return NEW;
+  return case when TG_OP = 'DELETE' then OLD else NEW end;
 end;
 $$ language plpgsql security definer;
 

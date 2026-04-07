@@ -15,6 +15,22 @@ interface EditModalProps {
 export default function EditModal({ isOpen, onClose, config, initialData, onSave }: EditModalProps) {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [entities, setEntities] = useState<{ entity_id: string; legal_name: string }[]>([]);
+
+  // Fetch real entities from database for the dropdown
+  useEffect(() => {
+    if (!isOpen) return;
+    import('../lib/supabase').then(({ supabase }) => {
+      supabase
+        .from('entities')
+        .select('entity_id, legal_name')
+        .eq('is_deleted', false)
+        .order('entity_id', { ascending: true })
+        .then(({ data }) => {
+          if (data) setEntities(data);
+        });
+    });
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -29,7 +45,6 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
       const sh2 = Number(formData.shareholding_age_2) || 0;
       const sh3 = Number(formData.shareholding_age_3) || 0;
       const sum = sh1 + sh2 + sh3;
-      
       if (formData.total_shareholding !== sum) {
         setFormData(prev => ({ ...prev, total_shareholding: sum }));
       }
@@ -38,14 +53,11 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
 
   if (!isOpen) return null;
 
-  const hasChanges = Object.keys(formData).some(
-    key => formData[key] !== initialData[key]
-  );
+  const hasChanges = Object.keys(formData).some(key => formData[key] !== initialData[key]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // 1. Check required fields
+
     const missingRequired = config.columns.find(
       col => col.required && config.editableFields.includes(col.key) && !formData[col.key]
     );
@@ -54,15 +66,11 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
       return;
     }
 
-    // 2. Custom logical validations (Entities table)
     if (config.table === 'entities') {
       const sh1 = Number(formData.shareholding_age_1) || 0;
       const sh2 = Number(formData.shareholding_age_2) || 0;
       const sh3 = Number(formData.shareholding_age_3) || 0;
       const total = Number(formData.total_shareholding) || 0;
-
-      // Only reject if there are actually any shareholding values entered, 
-      // or if total is specified and doesn't match the sum
       if ((sh1 > 0 || sh2 > 0 || sh3 > 0 || total > 0) && (sh1 + sh2 + sh3 !== total)) {
         toast.error('Total Shareholding must exactly equal the sum of the individual shareholding percentages.');
         return;
@@ -70,7 +78,6 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
     }
 
     if (!hasChanges) return onClose();
-    
     setIsSaving(true);
     await onSave(formData);
     setIsSaving(false);
@@ -81,6 +88,16 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
     setFormData(prev => ({ ...prev, [key]: value }));
   };
 
+  // When entity_id is picked, auto-fill entity_legal_name too
+  const handleEntitySelect = (entityId: string) => {
+    const found = entities.find(e => e.entity_id === entityId);
+    setFormData(prev => ({
+      ...prev,
+      entity_id: entityId,
+      ...(found ? { entity_legal_name: found.legal_name } : {}),
+    }));
+  };
+
   const inputStyle = {
     background: '#FFFFFF',
     color: '#111827',
@@ -88,21 +105,16 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
     borderRadius: '6px',
   };
 
+  const isChildTable = config.table !== 'entities';
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-white rounded-xl shadow-2xl overflow-hidden">
-        
+
         {/* Header */}
-        <div
-          className="px-6 py-4 flex justify-between items-center shrink-0 border-b border-gray-100 bg-white"
-        >
+        <div className="px-6 py-4 flex justify-between items-center shrink-0 border-b border-gray-100 bg-white">
           <h3 className="text-lg font-bold text-gray-900">Edit {config.label} Record</h3>
-          <button
-            onClick={onClose}
-            className="transition-colors duration-200 text-gray-400 hover:text-gray-900"
-          >
+          <button onClick={onClose} className="transition-colors duration-200 text-gray-400 hover:text-gray-900">
             ✕
           </button>
         </div>
@@ -113,44 +125,87 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
             {config.columns
               .filter(col => config.editableFields.includes(col.key))
               .map(col => {
-                const val = formData[col.key] || '';
+                const val = formData[col.key] ?? '';
+
+                // ── Entity ID: Live dropdown from database ──
+                if (col.key === 'entity_id' && isChildTable) {
+                  return (
+                    <div key={col.key}>
+                      <label className="block text-[0.65rem] font-semibold uppercase mb-2 text-gray-500" style={{ letterSpacing: '0.08em' }}>
+                        {col.label}
+                      </label>
+                      <select
+                        value={val}
+                        onChange={e => handleEntitySelect(e.target.value)}
+                        className="w-full px-3 py-2 text-sm focus:outline-none"
+                        style={inputStyle}
+                      >
+                        <option value="">— Select Company —</option>
+                        {entities.map(e => (
+                          <option key={e.entity_id} value={e.entity_id}>
+                            {e.entity_id} · {e.legal_name}
+                          </option>
+                        ))}
+                      </select>
+                      {val && (
+                        <p className="mt-1 text-xs text-green-600 font-medium">
+                          ✓ {entities.find(e => e.entity_id === val)?.legal_name || val}
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
+
+                // ── Entity Legal Name: Read-only, auto-filled ──
+                if (col.key === 'entity_legal_name' && isChildTable) {
+                  return (
+                    <div key={col.key}>
+                      <label className="block text-[0.65rem] font-semibold uppercase mb-2 text-gray-500" style={{ letterSpacing: '0.08em' }}>
+                        {col.label}
+                      </label>
+                      <input
+                        type="text"
+                        value={val}
+                        readOnly
+                        placeholder="Auto-filled when Entity ID is selected"
+                        className="w-full px-3 py-2 text-sm focus:outline-none cursor-not-allowed text-gray-500"
+                        style={{ ...inputStyle, background: '#F3F4F6' }}
+                      />
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={col.key}>
-                    <label
-                      className="block text-[0.65rem] font-semibold uppercase mb-2 text-gray-500"
-                      style={{ letterSpacing: '0.08em' }}
-                    >
+                    <label className="block text-[0.65rem] font-semibold uppercase mb-2 text-gray-500" style={{ letterSpacing: '0.08em' }}>
                       {col.label}
                     </label>
-                    
+
                     {col.options ? (
                       <div className="space-y-2">
-                        <select 
+                        <select
                           value={col.options.includes(val) ? val : (val ? 'Other' : '')}
-                          onChange={e => {
-                            const selected = e.target.value;
-                            handleChange(col.key, selected);
-                          }}
+                          onChange={e => handleChange(col.key, e.target.value)}
                           className="w-full px-3 py-2 text-sm focus:outline-none"
                           style={inputStyle}
                         >
                           <option value="">Select...</option>
                           {col.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                         </select>
-                        {(col.options.includes('Other') && (val === 'Other' || (val && !col.options.includes(val)))) && (
-                          <input 
+                        {col.options.includes('Other') && (val === 'Other' || (val && !col.options.includes(val))) && (
+                          <input
                             type="text"
                             placeholder={`Specify other ${col.label}...`}
                             value={val === 'Other' ? '' : val}
                             onChange={e => handleChange(col.key, e.target.value)}
-                            className="w-full px-3 py-2 text-sm mt-1 focus:outline-none border-blue-400"
-                            style={{...inputStyle, borderColor: '#60A5FA'}}
+                            className="w-full px-3 py-2 text-sm mt-1 focus:outline-none"
+                            style={{ ...inputStyle, borderColor: '#60A5FA' }}
                             autoFocus
                           />
                         )}
                       </div>
                     ) : col.type === 'boolean' ? (
-                      <select 
+                      <select
                         value={formData[col.key] === true ? 'true' : formData[col.key] === false ? 'false' : ''}
                         onChange={e => handleChange(col.key, e.target.value === 'true')}
                         className="w-full px-3 py-2 text-sm focus:outline-none"
@@ -161,7 +216,7 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
                         <option value="false">No</option>
                       </select>
                     ) : col.type === 'date' ? (
-                      <input 
+                      <input
                         type="date"
                         value={val ? String(val).split('T')[0] : ''}
                         onChange={e => handleChange(col.key, e.target.value)}
@@ -169,7 +224,7 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
                         style={inputStyle}
                       />
                     ) : col.type === 'number' ? (
-                      <input 
+                      <input
                         type="number"
                         value={val}
                         readOnly={config.table === 'entities' && col.key === 'total_shareholding'}
@@ -178,7 +233,7 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
                         style={inputStyle}
                       />
                     ) : (
-                      <input 
+                      <input
                         type="text"
                         value={val}
                         onChange={e => handleChange(col.key, e.target.value)}
@@ -188,23 +243,21 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
                     )}
                   </div>
                 );
-            })}
+              })}
           </div>
         </form>
 
         {/* Footer */}
-        <div
-          className="px-6 py-4 flex justify-end space-x-3 shrink-0 bg-gray-50 border-t border-gray-200"
-        >
-          <button 
-            type="button" 
+        <div className="px-6 py-4 flex justify-end space-x-3 shrink-0 bg-gray-50 border-t border-gray-200">
+          <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-sm font-medium transition-colors duration-200 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             Cancel
           </button>
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             form="editForm"
             disabled={!hasChanges || isSaving}
             className="px-4 py-2 text-sm font-bold disabled:opacity-30 transition-colors duration-200 bg-gray-900 text-white rounded-lg hover:bg-black"

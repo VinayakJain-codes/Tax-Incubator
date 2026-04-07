@@ -4,9 +4,9 @@
  * Run: node upload-excel.mjs
  */
 
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx';
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -16,31 +16,82 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const EXCEL_FILE = 'Group_Governance_and_Control_v6_SJ Comments.xlsx';
 
 // Map Excel sheet names → Supabase table names
-// Adjust these mappings to match the actual sheet names in your Excel file
 const SHEET_TABLE_MAP = {
-  'Entity Master':        'entities',
-  'Entities':             'entities',
+  'Entity_Master':        'entities',
   'Addresses':            'addresses',
-  'Directors & Officers': 'directors_officers',
-  'Directors':            'directors_officers',
-  'UBO Register':         'ubo_register',
-  'UBO':                  'ubo_register',
-  'Bank Accounts':        'bank_accounts',
-  'Banks':                'bank_accounts',
+  'Directors_Officers':   'directors_officers',
+  'UBO_Register':         'ubo_register',
+  'Bank_Accounts':        'bank_accounts',
   'Signatories':          'signatories',
-  'VAT Matrix':           'vat_matrix',
-  'VAT':                  'vat_matrix',
-  'CT Matrix':            'ct_matrix',
-  'CT':                   'ct_matrix',
-  'Licenses':             'licenses',
-  'Licenses & Regulatory':'licenses',
+  'VAT_Regulatory_Matrix':'vat_matrix',
+  'CT_Regulatory_Matrix': 'ct_matrix',
+  'Licenses_Regulatory':  'licenses',
   'Auditors':             'auditors',
-  'Document Control':     'document_control',
-  'Documents':            'document_control',
-  'Controls Log':         'controls_log',
-  'Controls':             'controls_log',
-  'Renewal Calendar':     'renewal_calendar',
-  'Renewals':             'renewal_calendar',
+  'Document_Control':     'document_control',
+  'Controls_Log':         'controls_log',
+  'Renewal_Calendar':     'renewal_calendar'
+};
+
+const EXCEL_TO_DB_MAP = {
+  // Shared / entity lookup
+  'Entity Legal Name': 'entity_legal_name',
+  'Entity Legal Name (Lookup)': 'entity_legal_name',
+
+  // Entity Master overrides
+  'Logo (Insert Image)': 'logo_asset_image',
+  'Address Type (Registered/Admin/Operational)': 'address_type',
+
+  // People (Directors, UBOs, Signatories)
+  'UBO ID': 'ubo_id',
+  'ID / Passport No': 'passport_no',
+  'Photo (Insert Image)': 'photo_asset_image',
+  'Active (Y/N)': 'active',
+  'Ownership %': 'ownership_pct',
+  'Date of Birth': 'dob',
+  'Limit': 'limit_amount',
+
+  // Bank Accounts
+  'SWIFT/BIC': 'swift_bic',
+  'Bank Account ID': 'bank_account_id',
+
+  // VAT Matrix
+  'Audit Required (Y/N)': 'audit_required',
+
+  // CT Matrix
+  'Tax Identification Number': 'tin',
+  'Corporate Tax Applicable (Y/N)': 'ct_applicable',
+  'Return Filing Frequency': 'filing_frequency',
+  'Return Filing Due Date': 'return_due_date',
+  'Economic Substance (Y/N)': 'economic_substance',
+  'Transfer Pricing (Y/N)': 'transfer_pricing',
+  'Data Protection Regime': 'data_protection_regime',
+
+  // Licenses
+  'Licese Link': 'license_link',        // note: typo is in the Excel file itself
+  'Owner (Role/Person)': 'owner',
+
+  // Auditors
+  'Auditor ID': 'auditor_code',
+  'Audit Firm Name': 'firm_name',
+
+  // Document Control
+  'Doc ID': 'doc_id',
+  'Document Type': 'doc_type',
+  'Document Description': 'description',
+  'Responsible Person': 'responsible_person',
+  'Review Status': 'review_status',
+
+  // Controls Log
+  'Control ID': 'control_id',
+  'Date Logged': 'date_logged',
+  'Control Type': 'control_type',
+  'Risk Rating': 'risk_rating',
+  'Evidence Link': 'evidence_link',
+  'Due Date': 'due_date',
+  'Closure Date': 'closure_date',
+
+  // Renewal Calendar
+  'Item ID': 'item_id'
 };
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -54,17 +105,48 @@ function cleanHeader(h) {
     .replace(/[^a-z0-9_]/g, '');
 }
 
-function cleanRow(row) {
+function cleanRow(row, tableName) {
   const cleaned = {};
   for (const [k, v] of Object.entries(row)) {
-    const key = cleanHeader(k);
-    if (!key || key === '') continue;
-    // Convert Excel date serials to ISO strings
-    if (typeof v === 'number' && key.includes('date') || key.includes('_at')) {
-      try {
-        const d = XLSX.SSF.parse_date_code(v);
-        cleaned[key] = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
-      } catch {
+    if (!k || typeof k !== 'string') continue;
+    const kstr = k.toLowerCase();
+    // Ignore columns generated via Excel formulas/macros, but keep (lookup) since 
+    // Entity Legal Name (Lookup) is a valid user-entered field in Renewal Calendar
+    if (kstr.includes('(auto)') || kstr.includes('__empty')) {
+      continue;
+    }
+
+    // Special case: "Entity Legal Name" on the entities table → maps to legal_name (PK column)
+    // On all other tables → maps to entity_legal_name (FK denormalized copy)
+    let key;
+    const trimmedK = k.trim();
+    if ((trimmedK === 'Entity Legal Name' || trimmedK === 'Entity Legal Name (Lookup)') && tableName === 'entities') {
+      key = 'legal_name';
+    } else {
+      key = EXCEL_TO_DB_MAP[trimmedK] || cleanHeader(k);
+    }
+    
+    // Date Parsing logic
+    const isDateKey = key.includes('date') || key.includes('_at') || key.includes('_expiry') || key.includes('dob');
+    
+    if (v !== null && v !== "" && isDateKey) {
+      if (typeof v === 'number') {
+        try {
+          const d = XLSX.SSF.parse_date_code(v);
+          cleaned[key] = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+        } catch { cleaned[key] = v; }
+      } else if (typeof v === 'string') {
+        const dayMonthRegex = /^(\d+)(st|nd|rd|th)\s+(January|February|March|April|May|June|July|August|September|October|November|December)$/i;
+        if (dayMonthRegex.test(v.trim())) {
+          const match = v.trim().match(dayMonthRegex);
+          const day = match[1];
+          const month = match[3];
+          const currentYear = new Date().getFullYear();
+          cleaned[key] = new Date(`${month} ${day}, ${currentYear}`).toISOString().split('T')[0];
+        } else {
+          cleaned[key] = v;
+        }
+      } else {
         cleaned[key] = v;
       }
     } else {
@@ -74,6 +156,34 @@ function cleanRow(row) {
   return cleaned;
 }
 
+function parseSchema() {
+  const content = readFileSync('schema.sql', 'utf-8');
+  const tableCols = {};
+  let currentTable = null;
+  
+  for (const line of content.split('\n')) {
+    const tableMatch = line.match(/create table public\.(\w+)/i);
+    if (tableMatch) {
+      currentTable = tableMatch[1];
+      tableCols[currentTable] = new Set();
+      continue;
+    }
+    if (currentTable && line.trim().startsWith(');')) {
+      currentTable = null;
+      continue;
+    }
+    if (currentTable) {
+      const colMatch = line.trim().match(/^([a-z0-9_]+)\s+/i);
+      if (colMatch) {
+        tableCols[currentTable].add(colMatch[1].toLowerCase());
+      }
+    }
+  }
+  return tableCols;
+}
+
+const schemaCols = parseSchema();
+
 async function uploadSheet(sheetName, tableName, rows) {
   console.log(`\n📤 Uploading sheet "${sheetName}" → table "${tableName}" (${rows.length} rows)...`);
   
@@ -82,9 +192,36 @@ async function uploadSheet(sheetName, tableName, rows) {
   let inserted = 0;
   let errors = 0;
 
+  const allowedCols = schemaCols[tableName] || new Set();
+
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    const { error } = await supabase.from(tableName).insert(chunk);
+    const chunk = rows.slice(i, i + CHUNK).map(row => {
+      const dbRow = {};
+      for (const [k, v] of Object.entries(row)) {
+        if (allowedCols.has(k)) {
+          dbRow[k] = v;
+        }
+      }
+      return dbRow;
+    }).filter(row => {
+      // Ensure required NOT NULL columns are present to avoid bulk constraint failures
+      if (tableName === 'entities' && !row.legal_name) return false;
+      if (tableName === 'addresses' && !row.entity_id) return false;
+      if (tableName === 'directors_officers' && !row.entity_id) return false;
+      return true;
+    });
+
+    if (chunk.length === 0) continue;
+
+    let query = supabase.from(tableName);
+    // Use upsert for entities to avoid unique constraint errors
+    if (tableName === 'entities') {
+      query = query.upsert(chunk, { onConflict: 'entity_id' });
+    } else {
+      query = query.insert(chunk);
+    }
+
+    const { error } = await query;
     if (error) {
       console.error(`  ❌ Error on rows ${i}-${i+CHUNK}:`, error.message);
       errors++;
@@ -127,8 +264,8 @@ async function main() {
       continue;
     }
 
-    // Clean all rows
-    const rows = rawRows.map(cleanRow);
+    // Clean all rows (pass tableName so entity_legal_name vs legal_name resolves correctly)
+    const rows = rawRows.map(row => cleanRow(row, tableName));
     // Remove rows where all values are null (blank rows)
     const nonEmpty = rows.filter(r => Object.values(r).some(v => v !== null));
 
@@ -140,4 +277,7 @@ async function main() {
   console.log('👉 Refresh your dashboard at http://localhost:3000/dashboard to see the data.');
 }
 
-main().catch(console.error);
+main().catch(err => {
+  writeFileSync('error.log', err.stack || String(err));
+  console.error("Fatal error written to error.log");
+});
