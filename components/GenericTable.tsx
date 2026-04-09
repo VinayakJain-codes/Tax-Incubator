@@ -10,36 +10,76 @@ interface GenericTableProps {
   data: any[];
   isLoading: boolean;
   onEdit: (row: any) => void;
+  onDelete: (row: any) => void;
   onHistory: (row: any) => void;
+  yearFilter?: number | null;
+  onYearFilterChange?: (year: number | null) => void;
 }
 
-export default function GenericTable({ config, data = [], isLoading, onEdit, onHistory }: GenericTableProps) {
+// Helper to determine if a row should be greyed out (lifecycle state)
+function isRowFrozen(row: any, config: SheetDef): boolean {
+  if (config.hasCompleted && row.is_completed) return true;
+  if (row.is_resigned) return true;
+  if (row.is_closed) return true;
+  return false;
+}
+
+export default function GenericTable({ config, data = [], isLoading, onEdit, onDelete, onHistory, yearFilter, onYearFilterChange }: GenericTableProps) {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 20;
 
+  // Generate year options for the year filter (current year ± 5)
+  const yearOptions = useMemo(() => {
+    if (!config.hasYearFilter) return [];
+    const currentYear = new Date().getFullYear();
+    const years = [];
+    for (let y = currentYear + 1; y >= currentYear - 5; y--) {
+      years.push(y);
+    }
+    return years;
+  }, [config.hasYearFilter]);
+
   const filterOptions = useMemo(() => {
     const opts: Record<string, string[]> = {};
     config.filters.forEach(key => {
-      const uniqueVals = new Set(data.map(d => d[key]).filter(Boolean));
-      opts[key] = Array.from(uniqueVals).sort();
+      if (key === 'is_resigned' || key === 'is_closed') {
+        opts[key] = ['true', 'false'];
+        return;
+      }
+      const uniqueVals = new Set(data.map(d => d[key]).filter(v => v !== null && v !== undefined && v !== ''));
+      opts[key] = Array.from(uniqueVals as Set<string>).sort();
     });
     return opts;
   }, [data, config.filters]);
 
   const filteredData = useMemo(() => {
     return data.filter(row => {
+      // Year filter for compliance tabs
+      if (config.hasYearFilter && yearFilter) {
+        // Try filtering by last_filing_date, expiry_date, return_due_date, or appointment_date
+        const dateField = row.last_filing_date || row.expiry_date || row.return_due_date || row.appointment_date;
+        if (dateField) {
+          const rowYear = new Date(dateField).getFullYear();
+          if (rowYear !== yearFilter) return false;
+        } else if (row.audit_year && row.audit_year !== yearFilter) {
+          return false;
+        }
+      }
       if (search) {
         const rowString = Object.values(row).join(' ').toLowerCase();
         if (!rowString.includes(search.toLowerCase())) return false;
       }
       for (const [key, val] of Object.entries(filters)) {
-        if (val && row[key] !== val) return false;
+        if (!val) continue;
+        if (val === 'true' && !row[key]) return false;
+        if (val === 'false' && row[key]) return false;
+        if (val !== 'true' && val !== 'false' && row[key] !== val) return false;
       }
       return true;
     });
-  }, [data, search, filters]);
+  }, [data, search, filters, yearFilter, config.hasYearFilter]);
 
   const totalPages = Math.ceil(filteredData.length / rowsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
@@ -57,6 +97,9 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onH
         filterOptions={filterOptions}
         activeFilters={filters}
         onFilterChange={handleFilterChange}
+        yearFilter={yearFilter ?? null}
+        onYearFilterChange={config.hasYearFilter ? onYearFilterChange : undefined}
+        yearOptions={yearOptions}
       />
 
       <div className="flex-1 overflow-auto relative">
@@ -101,42 +144,65 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onH
                 </td>
               </tr>
             ) : (
-              paginatedData.map((row, i) => (
-                <tr
-                  key={row.id || row.entity_id || i}
-                  className="transition-colors duration-150 cursor-default hover:bg-gray-50"
-                >
-                  {config.columns.map(col => (
-                    <td key={col.key} className="px-6 py-3 whitespace-nowrap text-sm">
-                      {col.type === 'status' ? (
-                        <StatusBadge status={row[col.key]} />
-                      ) : col.type === 'boolean' ? (
-                        <span className={row[col.key] ? 'text-gray-900' : 'text-gray-400'}>
-                          {row[col.key] ? '● Yes' : '○ No'}
-                        </span>
-                      ) : (
-                        row[col.key] || <span className="text-gray-300">—</span>
+              paginatedData.map((row, i) => {
+                const frozen = isRowFrozen(row, config);
+                return (
+                  <tr
+                    key={row.id || row.entity_id || i}
+                    className={`transition-colors duration-150 cursor-default ${
+                      frozen
+                        ? 'bg-gray-100 opacity-60'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    {config.columns.map(col => (
+                      <td
+                        key={col.key}
+                        className={`px-6 py-3 whitespace-nowrap text-sm ${frozen ? 'text-gray-400' : 'text-gray-900'}`}
+                      >
+                        {col.key === 'is_resigned' || col.key === 'is_closed' || col.key === 'is_completed' ? (
+                          <span className={row[col.key] ? 'text-amber-600 font-semibold' : 'text-gray-300'}>
+                            {row[col.key] ? '● Yes' : '○ No'}
+                          </span>
+                        ) : col.type === 'status' || ['_filing_status', '_rag', '_reminder_flag'].includes(col.key) ? (
+                          <StatusBadge status={row[col.key]} />
+                        ) : col.type === 'boolean' ? (
+                          <span className={row[col.key] ? 'text-gray-900' : 'text-gray-400'}>
+                            {row[col.key] ? '● Yes' : '○ No'}
+                          </span>
+                        ) : (
+                          row[col.key] || <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className="px-6 py-3 text-right whitespace-nowrap space-x-3">
+                      <button 
+                        onClick={() => onHistory(row)}
+                        className="transition-colors duration-200 text-gray-400 hover:text-gray-900"
+                        title="View Change History"
+                      >
+                        ◷
+                      </button>
+                      {!frozen && (
+                        <button 
+                          onClick={() => onEdit(row)}
+                          className="transition-colors duration-200 px-3 py-1 rounded text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 hover:text-gray-900"
+                          title="Edit Record"
+                        >
+                          Edit
+                        </button>
                       )}
+                      <button 
+                        onClick={() => onDelete(row)}
+                        className="transition-colors duration-200 px-2 py-1 rounded text-sm font-medium text-red-400 hover:text-red-600 hover:bg-red-50"
+                        title="Request Deletion"
+                      >
+                        ✕
+                      </button>
                     </td>
-                  ))}
-                  <td className="px-6 py-3 text-right whitespace-nowrap space-x-3">
-                    <button 
-                      onClick={() => onHistory(row)}
-                      className="transition-colors duration-200 text-gray-400 hover:text-gray-900"
-                      title="View History"
-                    >
-                      ◷
-                    </button>
-                    <button 
-                      onClick={() => onEdit(row)}
-                      className="transition-colors duration-200 px-3 py-1 rounded text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 hover:text-gray-900"
-                      title="Edit Record"
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>

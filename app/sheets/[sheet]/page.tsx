@@ -9,61 +9,16 @@ import EditModal from '@/components/EditModal';
 import RecordHistory from '@/components/RecordHistory';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-
-// ─── Auto-field calculation engine ───────────────────────────────────────────
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function nextDueFromFrequency(lastFilingDate: string, frequency: string): Date | null {
-  if (!lastFilingDate || !frequency) return null;
-  const base = new Date(lastFilingDate);
-  if (isNaN(base.getTime())) return null;
-
-  switch (frequency) {
-    case 'Monthly':     return addDays(base, 30);
-    case 'Quarterly':   return addDays(base, 91);
-    case 'Semi-Annual': return addDays(base, 182);
-    case 'Annual':      return addDays(base, 365);
-    default:            return null;
-  }
-}
-
-function daysFromToday(date: Date | null): number | null {
-  if (!date) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const diff = date.getTime() - today.getTime();
-  return Math.round(diff / (1000 * 60 * 60 * 24));
-}
-
-function ragFromDays(days: number | null): string {
-  if (days === null) return '—';
-  if (days < 0)  return '🔴 Overdue';
-  if (days <= 14) return '🔴 Red';
-  if (days <= 30) return '🟡 Amber';
-  return '🟢 Green';
-}
-
-function reminderFlag(days: number | null): string {
-  if (days === null) return '—';
-  if (days <= 30) return '⚠️ Yes';
-  return 'No';
-}
-
-function filingStatus(days: number | null): string {
-  if (days === null) return '—';
-  if (days < 0)   return 'Overdue';
-  if (days <= 30) return 'Due Soon';
-  return 'Filed';
-}
-
-function formatDate(date: Date | null): string {
-  if (!date) return '—';
-  return date.toISOString().split('T')[0];
-}
+import { 
+  getNextDueDate, 
+  daysFromToday, 
+  getFilingStatus, 
+  getFilingReminderFlag,
+  getLicenseStatus,
+  getLicenseReminderFlag,
+  getRAG,
+  getCalendarReminderFlag 
+} from '@/lib/formulas';
 
 function injectAutoFields(rows: any[], table: string): any[] {
   return rows.map(row => {
@@ -71,44 +26,47 @@ function injectAutoFields(rows: any[], table: string): any[] {
 
     // VAT Matrix auto fields
     if (table === 'vat_matrix') {
-      const ndd = nextDueFromFrequency(r.last_filing_date, r.filing_frequency);
+      const ndd = getNextDueDate(r.last_filing_date, r.filing_frequency);
       const days = daysFromToday(ndd);
-      r._next_due_date  = formatDate(ndd);
+      r._next_due_date  = ndd ? ndd.toISOString().split('T')[0] : '—';
       r._days_to_due    = days !== null ? days : '—';
-      r._filing_status  = filingStatus(days);
-      r._reminder_flag  = reminderFlag(days);
+      const status = getFilingStatus(ndd);
+      r._filing_status  = status;
+      r._reminder_flag  = getFilingReminderFlag(status) || 'No';
     }
 
     // CT Matrix auto fields
     if (table === 'ct_matrix') {
-      // Prefer return_due_date if set, else calculate from last_filing_date + frequency
       let ndd: Date | null = null;
       if (r.return_due_date) {
         ndd = new Date(r.return_due_date);
         if (isNaN(ndd.getTime())) ndd = null;
       }
-      if (!ndd) ndd = nextDueFromFrequency(r.last_filing_date, r.filing_frequency);
+      if (!ndd) ndd = getNextDueDate(r.last_filing_date, r.filing_frequency);
       const days = daysFromToday(ndd);
-      r._next_due_date  = formatDate(ndd);
+      r._next_due_date  = ndd ? ndd.toISOString().split('T')[0] : '—';
       r._days_to_due    = days !== null ? days : '—';
-      r._filing_status  = filingStatus(days);
-      r._reminder_flag  = reminderFlag(days);
+      const status = getFilingStatus(ndd);
+      r._filing_status  = status;
+      r._reminder_flag  = getFilingReminderFlag(status) || 'No';
     }
 
     // Licenses auto fields
     if (table === 'licenses') {
-      const expiry = r.expiry_date ? new Date(r.expiry_date) : null;
-      const days = daysFromToday(expiry);
+      const days = daysFromToday(r.expiry_date);
       r._days_to_expiry = days !== null ? days : '—';
+      const status = getLicenseStatus(r.expiry_date);
+      r._filing_status  = status || '—';
+      r._reminder_flag  = getLicenseReminderFlag(status) || 'No';
     }
 
     // Renewal Calendar auto fields
     if (table === 'renewal_calendar') {
-      const due = r.due_date ? new Date(r.due_date) : null;
-      const days = daysFromToday(due);
+      const days = daysFromToday(r.due_date);
       r._days_to_due   = days !== null ? days : '—';
-      r._rag           = ragFromDays(days);
-      r._reminder_flag = reminderFlag(days);
+      const rag = getRAG(r.due_date);
+      r._rag           = rag || '—';
+      r._reminder_flag = getCalendarReminderFlag(rag) || 'No';
     }
 
     return r;
@@ -125,6 +83,11 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
   const [editRow, setEditRow] = useState<any | null>(null);
   const [historyRow, setHistoryRow] = useState<any | null>(null);
   const [showNew, setShowNew] = useState(false);
+  const [yearFilter, setYearFilter] = useState<number | null>(null);
+  // Delete confirmation state
+  const [deleteRow, setDeleteRow] = useState<any | null>(null);
+  const [deleteReason, setDeleteReason] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!config) return;
@@ -161,6 +124,41 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
         .eq(pk, recordId);
 
       if (error) throw error;
+      
+      // Auto-Renewal Rollover Logic
+      if (
+        ['vat_matrix', 'ct_matrix', 'licenses'].includes(config.table) &&
+        !editRow?.is_completed &&
+        dbData.is_completed
+      ) {
+        const rolloverData = { ...dbData };
+        delete rolloverData[pk]; // Remove primary key so a new one is generated
+        
+        if (config.table === 'vat_matrix' || config.table === 'ct_matrix') {
+          const ndd = getNextDueDate(dbData.last_filing_date, dbData.filing_frequency);
+          if (ndd) rolloverData.last_filing_date = ndd.toISOString().split('T')[0];
+          
+          if (config.table === 'ct_matrix' && dbData.return_due_date) {
+            const rrdd = getNextDueDate(dbData.return_due_date, dbData.filing_frequency);
+            if (rrdd) rolloverData.return_due_date = rrdd.toISOString().split('T')[0];
+          }
+        } else if (config.table === 'licenses' && dbData.expiry_date) {
+          // Defaults to 1-year renewal for licenses
+          const newExp = new Date(dbData.expiry_date);
+          newExp.setFullYear(newExp.getFullYear() + 1);
+          rolloverData.expiry_date = newExp.toISOString().split('T')[0];
+        }
+        
+        rolloverData.is_completed = false;
+        
+        const { error: insErr } = await (supabase.from(config.table) as any).insert(rolloverData);
+        if (!insErr) {
+          setTimeout(() => toast.success('Next cycle automatically generated', { icon: '🔄' }), 500);
+        } else {
+          console.error("Rollover Error:", insErr);
+        }
+      }
+
       toast.success('Record updated');
       setEditRow(null);
       loadData();
@@ -171,7 +169,6 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
 
   const handleCreate = async (newData: Record<string, any>) => {
     try {
-      // Strip virtual _auto fields before saving to DB
       const dbData = Object.fromEntries(
         Object.entries(newData).filter(([k]) => !k.startsWith('_'))
       );
@@ -184,6 +181,51 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
     } catch (err: any) {
       toast.error(err.message || 'Error creating record');
     }
+  };
+
+  // ── Delete with reason + manager approval ──
+  const handleDeleteRequest = async () => {
+    if (!deleteReason.trim()) {
+      toast.error('Please provide a reason for deletion.');
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const pk = config.table === 'entities' ? 'entity_id' : 'id';
+      const recordId = deleteRow[pk];
+
+      // Get current user info
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Record the deletion request (soft pending approval)
+      const { error: reqErr } = await supabase.from('deletion_requests').insert({
+        table_name: config.table,
+        record_id: String(recordId),
+        entity_id: deleteRow.entity_id || null,
+        record_snapshot: deleteRow,
+        reason: deleteReason.trim(),
+        requested_by_id: user?.id || null,
+        requested_by_email: user?.email || null,
+        status: 'Pending',
+      });
+
+      if (reqErr) throw reqErr;
+
+      // Soft-delete the record immediately (Manager can restore from deletion_requests)
+      const { error: delErr } = await (supabase.from(config.table) as any)
+        .update({ is_deleted: true })
+        .eq(pk, recordId);
+
+      if (delErr) throw delErr;
+
+      toast.success('Record removed. Deletion request sent for Manager review.');
+      setDeleteRow(null);
+      setDeleteReason('');
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'Error requesting deletion');
+    }
+    setIsDeleting(false);
   };
 
   if (!config) {
@@ -223,7 +265,10 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
         data={data}
         isLoading={loading}
         onEdit={(row) => setEditRow(row)}
+        onDelete={(row) => { setDeleteRow(row); setDeleteReason(''); }}
         onHistory={(row) => setHistoryRow(row)}
+        yearFilter={yearFilter}
+        onYearFilterChange={setYearFilter}
       />
 
       {/* Edit Modal */}
@@ -244,6 +289,7 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
           config.table === 'entities'         ? { entity_id: 'E-' } :
           config.table === 'bank_accounts'    ? { bank_account_id: 'B-' } :
           config.table === 'ubo_register'     ? { ubo_id: 'U-' } :
+          config.table === 'shareholders'     ? { shareholder_id: 'SH-' } :
           config.table === 'document_control' ? { doc_id: 'DOC-' } :
           config.table === 'controls_log'     ? { control_id: 'CTRL-' } :
           config.table === 'renewal_calendar' ? { } :
@@ -260,6 +306,54 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
         recordId={historyRow?.id || historyRow?.entity_id || null}
         title={`Audit Trail — ${historyRow?.[config.sortDefault] || 'Record'}`}
       />
+
+      {/* Delete Confirmation Modal */}
+      {deleteRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+              <span className="text-2xl">🗑️</span>
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Request Deletion</h3>
+                <p className="text-xs text-gray-500 mt-0.5">This will be sent to a Manager for approval.</p>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="p-3 bg-gray-50 rounded-lg text-sm text-gray-700 border border-gray-200">
+                <span className="font-semibold">Record: </span>
+                {deleteRow[config.sortDefault] || deleteRow.entity_id || deleteRow.id}
+              </div>
+              <div>
+                <label className="block text-[0.65rem] font-semibold uppercase text-gray-500 mb-2" style={{ letterSpacing: '0.08em' }}>
+                  Reason for Deletion <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={deleteReason}
+                  onChange={e => setDeleteReason(e.target.value)}
+                  placeholder="Explain why this record needs to be deleted..."
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 bg-white resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-6 py-4 flex justify-end gap-3 bg-gray-50 border-t border-gray-100">
+              <button
+                onClick={() => { setDeleteRow(null); setDeleteReason(''); }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteRequest}
+                disabled={!deleteReason.trim() || isDeleting}
+                className="px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-40 transition-colors"
+              >
+                {isDeleting ? 'Submitting...' : 'Submit for Approval'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

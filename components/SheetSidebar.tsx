@@ -20,6 +20,7 @@ const navSections = [
       { href: '/sheets/addresses', label: 'Addresses', icon: '◎' },
       { href: '/sheets/directors', label: 'Directors & Officers', icon: '◉' },
       { href: '/sheets/ubo', label: 'UBO Register', icon: '◈' },
+      { href: '/sheets/shareholders', label: 'Shareholders', icon: '◐' },
       { href: '/sheets/banks', label: 'Bank Accounts', icon: '▦' },
       { href: '/sheets/signatories', label: 'Signatories', icon: '✦' },
     ],

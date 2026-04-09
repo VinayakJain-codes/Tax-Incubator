@@ -13,11 +13,33 @@ const RISK_COLORS: Record<string, string> = {
   Unknown: '#D1D5DB',
 };
 
+interface DueItem {
+  label: string;
+  entity: string;
+  dueDate: string;
+  daysLeft: number;
+  tab: string;
+  rag: 'red' | 'amber' | 'green';
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState({ total: 0, active: 0, overdueVat: 0, overdueCt: 0, expiredLicenses: 0 });
   const [jurisdictionData, setJurisdictionData] = useState<any[]>([]);
   const [riskData, setRiskData] = useState<any[]>([]);
+  const [dueItems, setDueItems] = useState<DueItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const daysFromToday = (dateStr: string): number => {
+    const today = new Date(); today.setHours(0,0,0,0);
+    return Math.round((new Date(dateStr).getTime() - today.getTime()) / 86400000);
+  };
+
+  const ragColor = (days: number): 'red' | 'amber' | 'green' => {
+    if (days < 0) return 'red';
+    if (days <= 14) return 'red';
+    if (days <= 30) return 'amber';
+    return 'green';
+  };
 
   useEffect(() => {
     async function load() {
@@ -41,16 +63,50 @@ export default function DashboardPage() {
       });
       setRiskData(Object.entries(rCount).map(([name, value]) => ({ name, value })));
 
-      const { data: vat } = await supabase.from('vat_matrix').select('last_filing_date, is_deleted').eq('is_deleted', false);
-      const overdueVat = vat?.filter((v: any) => v.last_filing_date && v.last_filing_date < today).length || 0;
+      const { data: vat } = await supabase.from('vat_matrix_computed').select('next_due_date, filing_frequency, entity_legal_name, days_to_due, filing_status, is_deleted, is_completed').eq('is_deleted', false).eq('is_completed', false);
+      const overdueVat = vat?.filter((v: any) => v.filing_status === 'Overdue').length || 0;
 
-      const { data: ct } = await supabase.from('ct_matrix').select('return_due_date, is_deleted').eq('is_deleted', false);
-      const overdueCt = ct?.filter((c: any) => c.return_due_date && c.return_due_date < today).length || 0;
+      const { data: ct } = await supabase.from('ct_matrix_computed').select('next_due_date, filing_frequency, entity_legal_name, days_to_due, filing_status, is_deleted, is_completed').eq('is_deleted', false).eq('is_completed', false);
+      const overdueCt = ct?.filter((c: any) => c.filing_status === 'Overdue').length || 0;
 
-      const { data: licenses } = await supabase.from('licenses').select('expiry_date, is_deleted').eq('is_deleted', false);
-      const expiredLicenses = licenses?.filter((l: any) => l.expiry_date && l.expiry_date < today).length || 0;
+      const { data: licenses } = await supabase.from('licenses_computed').select('expiry_date, entity_legal_name, licensing_authority, days_to_expiry, license_status, is_deleted, is_completed').eq('is_deleted', false).eq('is_completed', false);
+      const expiredLicenses = licenses?.filter((l: any) => l.license_status === 'EXPIRED').length || 0;
+
+      const { data: renewals } = await supabase.from('renewal_calendar_computed').select('due_date, description, entity_legal_name, days_to_due, rag_status, is_deleted').eq('is_deleted', false);
 
       setStats({ total, active, overdueVat, overdueCt, expiredLicenses });
+
+      // Build "Due in 30 days" list
+      const dueIn30: DueItem[] = [];
+      const HORIZON = 30;
+
+      vat?.forEach((v: any) => {
+        if (v.days_to_due !== null && v.days_to_due >= 0 && v.days_to_due <= HORIZON) {
+          dueIn30.push({ label: `VAT Filing (${v.filing_frequency})`, entity: v.entity_legal_name || '—', dueDate: v.next_due_date, daysLeft: v.days_to_due, tab: '/sheets/vat', rag: ragColor(v.days_to_due) });
+        }
+      });
+
+      ct?.forEach((c: any) => {
+        if (c.days_to_due !== null && c.days_to_due >= 0 && c.days_to_due <= HORIZON) {
+          dueIn30.push({ label: 'CT Filing', entity: c.entity_legal_name || '—', dueDate: c.next_due_date, daysLeft: c.days_to_due, tab: '/sheets/ct', rag: ragColor(c.days_to_due) });
+        }
+      });
+
+      licenses?.forEach((l: any) => {
+        if (l.days_to_expiry !== null && l.days_to_expiry >= 0 && l.days_to_expiry <= HORIZON) {
+          dueIn30.push({ label: `License Renewal — ${l.licensing_authority || 'N/A'}`, entity: l.entity_legal_name || '—', dueDate: l.expiry_date, daysLeft: l.days_to_expiry, tab: '/sheets/licenses', rag: ragColor(l.days_to_expiry) });
+        }
+      });
+
+      renewals?.forEach((r: any) => {
+        if (r.days_to_due !== null && r.days_to_due >= 0 && r.days_to_due <= HORIZON) {
+          dueIn30.push({ label: r.description || 'Renewal', entity: r.entity_legal_name || '—', dueDate: r.due_date, daysLeft: r.days_to_due, tab: '/sheets/renewals', rag: r.rag_status?.toLowerCase() || ragColor(r.days_to_due) });
+        }
+      });
+
+      dueIn30.sort((a, b) => a.daysLeft - b.daysLeft);
+      setDueItems(dueIn30);
+
       setLoading(false);
     }
     load();
@@ -169,6 +225,58 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           )}
         </div>
+      </div>
+
+      {/* Items Due in 30 Days Widget */}
+      <div className="p-6 bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-bold text-gray-900">⏰ Items Due in 30 Days</h3>
+            <p className="text-xs mt-0.5 text-gray-500">VAT, CT, Licenses & Renewals requiring attention</p>
+          </div>
+          {dueItems.length > 0 && (
+            <span className="inline-flex items-center justify-center w-7 h-7 text-sm font-bold rounded-full bg-red-50 text-red-600 border border-red-100">
+              {dueItems.length}
+            </span>
+          )}
+        </div>
+        {loading ? (
+          <div className="space-y-3">
+            {[1,2,3].map(i => <div key={i} className="h-12 rounded animate-pulse bg-gray-100" />)}
+          </div>
+        ) : dueItems.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+            <span className="text-3xl mb-2">✅</span>
+            <p className="text-sm font-medium">No items due in the next 30 days</p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+            {dueItems.map((item, idx) => (
+              <Link key={idx} href={item.tab} className="group flex items-center gap-4 p-3 rounded-lg border border-gray-100 hover:border-gray-300 hover:bg-gray-50 transition-all duration-150">
+                {/* RAG indicator */}
+                <div className={`w-2.5 h-2.5 flex-shrink-0 rounded-full ${
+                  item.rag === 'red' ? 'bg-red-500' :
+                  item.rag === 'amber' ? 'bg-yellow-400' :
+                  'bg-green-400'
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{item.label}</p>
+                  <p className="text-xs text-gray-500 truncate">{item.entity}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className={`text-sm font-bold ${
+                    item.rag === 'red' ? 'text-red-600' :
+                    item.rag === 'amber' ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                    {item.daysLeft < 0 ? `${Math.abs(item.daysLeft)}d overdue` : `${item.daysLeft}d left`}
+                  </p>
+                  <p className="text-xs text-gray-400">{item.dueDate}</p>
+                </div>
+                <span className="text-gray-300 group-hover:text-gray-500 flex-shrink-0 transition-colors">›</span>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
