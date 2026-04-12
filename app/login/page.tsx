@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import toast from 'react-hot-toast';
@@ -10,11 +10,27 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Load saved email from localStorage on mount
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('symax_remembered_email');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+
+    if (rememberMe) {
+      localStorage.setItem('symax_remembered_email', email);
+    } else {
+      localStorage.removeItem('symax_remembered_email');
+    }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
@@ -63,6 +79,56 @@ export default function LoginPage() {
              <div className="text-sm font-medium text-slate-400"><span className="text-white font-bold">Secure</span> Authorized Access Only</div>
           </div>
         </div>
+
+          {/* ──── Vicinix Watermark ──────────────────────────── */}
+          <div className="vcx-reveal absolute bottom-6 left-8 z-20" style={{maxWidth:'280px'}}>
+            <div
+              className="vcx-float relative rounded-xl overflow-hidden"
+              style={{
+                background: 'rgba(15,23,42,0.65)',
+                border: '1px solid rgba(249,115,22,0.3)',
+                boxShadow: '0 0 0 1px rgba(249,115,22,0.08) inset, 0 4px 24px rgba(0,0,0,0.4)',
+                backdropFilter: 'blur(16px)',
+              }}
+            >
+              {/* Scanline */}
+              <div className="vcx-scanline pointer-events-none absolute left-0 right-0 h-px" style={{background:'linear-gradient(90deg,transparent,rgba(249,115,22,0.5),transparent)'}}/>
+
+              <div className="px-4 py-3">
+                {/* Row 1: V badge + "Provided by Vicinix" */}
+                <div className="flex items-center gap-2.5 mb-1.5">
+                  <div
+                    className="w-6 h-6 flex-shrink-0 flex items-center justify-center rounded-md text-[10px] font-black text-white"
+                    style={{background:'linear-gradient(135deg,#f97316,#ea580c)', boxShadow:'0 0 10px rgba(249,115,22,0.45)'}}
+                  >V</div>
+                  <span className="text-[13px] font-semibold text-white tracking-tight leading-none">
+                    Provided by <span className="font-bold">Vicinix</span>
+                  </span>
+                </div>
+
+                {/* Row 2: "by Vinayak Jain" */}
+                <p className="text-[11px] text-slate-400 leading-none mb-2 pl-[34px]">
+                  by Vinayak Jain
+                </p>
+
+                {/* Row 3: Divider + tagline + contact */}
+                <div className="border-t border-white/[0.06] pt-2 pl-[34px]">
+                  <p className="text-[10px] tracking-[0.12em] uppercase font-semibold leading-none mb-1.5" style={{color:'rgba(249,115,22,0.45)'}}>
+                    Enterprise Intelligence Platform
+                  </p>
+                  <a
+                    href="mailto:vinayakjain2110@gmail.com"
+                    className="text-[9px] text-slate-500 hover:text-orange-400 transition-colors leading-none"
+                  >
+                    vinayakjain2110@gmail.com
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* ─────────────────────────────────────────────────── */}
+
+
       </div>
 
       {/* Right Login Pane */}
@@ -86,6 +152,8 @@ export default function LoginPage() {
               <label className="block text-sm font-bold text-slate-700 mb-2">Email Address</label>
               <input 
                 type="email" 
+                name="email"
+                autoComplete="email"
                 required
                 className="w-full px-5 py-3.5 border border-gray-200 rounded-xl focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all bg-gray-50 focus:bg-white text-slate-900 font-medium placeholder-gray-400"
                 value={email}
@@ -100,6 +168,8 @@ export default function LoginPage() {
               </div>
               <input 
                 type="password" 
+                name="password"
+                autoComplete="current-password"
                 required
                 className="w-full px-5 py-3.5 border border-gray-200 rounded-xl focus:ring-4 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all bg-gray-50 focus:bg-white text-slate-900 font-medium placeholder-gray-400"
                 value={password}
@@ -108,6 +178,29 @@ export default function LoginPage() {
               />
             </div>
             
+            {/* Remember Me */}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setRememberMe(v => !v)}
+                className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 transition-colors duration-200 ease-in-out focus:outline-none ${
+                  rememberMe ? 'bg-orange-500 border-orange-500' : 'bg-gray-200 border-gray-200'
+                }`}
+                role="switch"
+                aria-checked={rememberMe}
+                id="remember-me-toggle"
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${
+                    rememberMe ? 'translate-x-4' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+              <label htmlFor="remember-me-toggle" className="text-sm font-medium text-slate-600 cursor-pointer select-none" onClick={() => setRememberMe(v => !v)}>
+                Remember my email
+              </label>
+            </div>
+
             <button 
               type="submit" 
               disabled={loading}

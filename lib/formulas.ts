@@ -12,6 +12,9 @@ const FREQUENCY_MONTHS: Record<string, number> = {
   Annual: 12,
 };
 
+/** Grace period added to every filing due date (in days) */
+const GRACE_PERIOD_DAYS = 10;
+
 /** Add N months to a date (mirrors Excel EDATE) */
 export function edate(base: Date, months: number): Date {
   const d = new Date(base);
@@ -19,8 +22,8 @@ export function edate(base: Date, months: number): Date {
   return d;
 }
 
-/** VAT / CT: Next Due Date */
-export function getNextDueDate(
+/** VAT / CT: Period-end date WITHOUT grace (used for rollover base) */
+export function getPeriodEndDate(
   lastFilingDate: string | Date | null,
   frequency: string | null
 ): Date | null {
@@ -30,6 +33,18 @@ export function getNextDueDate(
   const months = FREQUENCY_MONTHS[frequency];
   if (!months) return null;
   return edate(d, months);
+}
+
+/** VAT / CT: Next Due Date (period-end + 10-day grace) */
+export function getNextDueDate(
+  lastFilingDate: string | Date | null,
+  frequency: string | null
+): Date | null {
+  const periodEnd = getPeriodEndDate(lastFilingDate, frequency);
+  if (!periodEnd) return null;
+  const withGrace = new Date(periodEnd);
+  withGrace.setDate(withGrace.getDate() + GRACE_PERIOD_DAYS);
+  return withGrace;
 }
 
 /** Days between a date and today (negative = overdue) */

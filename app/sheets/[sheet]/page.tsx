@@ -9,8 +9,10 @@ import EditModal from '@/components/EditModal';
 import RecordHistory from '@/components/RecordHistory';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { 
-  getNextDueDate, 
+  getNextDueDate,
+  getPeriodEndDate,
   daysFromToday, 
   getFilingStatus, 
   getFilingReminderFlag,
@@ -88,11 +90,16 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
   const [deleteRow, setDeleteRow] = useState<any | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  const searchParams = useSearchParams();
+  const presetEntityId = searchParams.get('entity_id');
 
   useEffect(() => {
     if (!config) return;
     loadData();
-  }, [params.sheet]);
+    if (presetEntityId) {
+      setShowNew(true);
+    }
+  }, [params.sheet, presetEntityId]);
 
   async function loadData() {
     setLoading(true);
@@ -135,11 +142,12 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
         delete rolloverData[pk]; // Remove primary key so a new one is generated
         
         if (config.table === 'vat_matrix' || config.table === 'ct_matrix') {
-          const ndd = getNextDueDate(dbData.last_filing_date, dbData.filing_frequency);
-          if (ndd) rolloverData.last_filing_date = ndd.toISOString().split('T')[0];
+          // Use period-end date (WITHOUT grace) as the base for next cycle
+          const periodEnd = getPeriodEndDate(dbData.last_filing_date, dbData.filing_frequency);
+          if (periodEnd) rolloverData.last_filing_date = periodEnd.toISOString().split('T')[0];
           
           if (config.table === 'ct_matrix' && dbData.return_due_date) {
-            const rrdd = getNextDueDate(dbData.return_due_date, dbData.filing_frequency);
+            const rrdd = getPeriodEndDate(dbData.return_due_date, dbData.filing_frequency);
             if (rrdd) rolloverData.return_due_date = rrdd.toISOString().split('T')[0];
           }
         } else if (config.table === 'licenses' && dbData.expiry_date) {
@@ -294,7 +302,7 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
           config.table === 'controls_log'     ? { control_id: 'CTRL-' } :
           config.table === 'renewal_calendar' ? { } :
           config.table === 'auditors'         ? { auditor_code: 'AUD-' } :
-          { entity_id: '' }
+          { entity_id: presetEntityId || '' }
         }
         onSave={handleCreate}
       />

@@ -192,6 +192,15 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
                           Edit
                         </button>
                       )}
+                      {config.table === 'entities' && !frozen && (
+                        <a 
+                          href={`/sheets/addresses?entity_id=${row.entity_id}`}
+                          className="transition-colors duration-200 px-3 py-1 rounded text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 inline-block"
+                          title="Add Address"
+                        >
+                          + Address
+                        </a>
+                      )}
                       <button 
                         onClick={() => onDelete(row)}
                         className="transition-colors duration-200 px-2 py-1 rounded text-sm font-medium text-red-400 hover:text-red-600 hover:bg-red-50"

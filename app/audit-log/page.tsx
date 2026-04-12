@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { convertToCSV, downloadCSV } from '@/lib/export-utils';
 
 export default function AuditLogPage() {
   const [logs, setLogs] = useState<any[]>([]);
@@ -59,6 +60,41 @@ export default function AuditLogPage() {
     });
   };
 
+  const calculateDeleteDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    d.setDate(d.getDate() + 30);
+    return new Date(d).toLocaleString('en-GB', { 
+      day: 'numeric', month: 'short', year: 'numeric', 
+      hour: '2-digit', minute: '2-digit' 
+    });
+  };
+
+  const handleExportCSV = () => {
+    const columns = [
+      { key: 'changed_at', label: 'Timestamp' },
+      { key: 'scheduled_delete', label: 'Scheduled Delete' },
+      { key: 'changed_by_email', label: 'User' },
+      { key: 'action', label: 'Action' },
+      { key: 'table_name', label: 'Table' },
+      { key: 'field_name', label: 'Field' },
+      { key: 'old_value', label: 'Old Value' },
+      { key: 'new_value', label: 'New Value' },
+    ];
+    
+    const formattedData = filteredLogs.map(log => {
+      const d = new Date(log.changed_at);
+      d.setDate(d.getDate() + 30);
+      return {
+        ...log,
+        changed_by_email: log.changed_by_email || 'System',
+        scheduled_delete: d.toISOString()
+      }
+    });
+
+    const csvContent = convertToCSV(formattedData, columns);
+    downloadCSV('Master_Audit_Log', csvContent);
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -88,13 +124,21 @@ export default function AuditLogPage() {
             </select>
           </div>
           
-          <input 
-            type="text"
-            className="w-full sm:max-w-xs px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-orange-500"
-            placeholder="Search fields or values..."
-            value={search}
-            onChange={e => {setSearch(e.target.value); setCurrentPage(1);}}
-          />
+          <div className="flex items-center space-x-3 w-full sm:w-auto">
+            <input 
+              type="text"
+              className="w-full sm:max-w-xs px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-orange-500"
+              placeholder="Search fields or values..."
+              value={search}
+              onChange={e => {setSearch(e.target.value); setCurrentPage(1);}}
+            />
+            <button 
+              onClick={handleExportCSV}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm bg-white text-gray-700 hover:bg-gray-50 flexitems-center whitespace-nowrap transition"
+            >
+              ⤓ Export CSV
+            </button>
+          </div>
         </div>
 
         {/* Table */}
@@ -103,6 +147,7 @@ export default function AuditLogPage() {
             <thead className="bg-gray-50 text-gray-500 sticky top-0 z-10 shadow-[0_1px_0_#e5e7eb]">
               <tr>
                 <th className="px-6 py-3 font-medium">Timestamp</th>
+                <th className="px-6 py-3 font-medium">Auto-Delete At</th>
                 <th className="px-6 py-3 font-medium">User</th>
                 <th className="px-6 py-3 font-medium">Module / Field</th>
                 <th className="px-6 py-3 font-medium">Old Value</th>
@@ -111,13 +156,14 @@ export default function AuditLogPage() {
             </thead>
             <tbody className="divide-y divide-gray-100 bg-white">
               {loading ? (
-                <tr><td colSpan={5} className="p-8 text-center text-gray-500">Loading audit trail...</td></tr>
+                <tr><td colSpan={6} className="p-8 text-center text-gray-500">Loading audit trail...</td></tr>
               ) : paginatedLogs.length === 0 ? (
-                <tr><td colSpan={5} className="p-8 text-center text-gray-500">No logs found matching criteria.</td></tr>
+                <tr><td colSpan={6} className="p-8 text-center text-gray-500">No logs found matching criteria.</td></tr>
               ) : (
                 paginatedLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50 transition">
                     <td className="px-6 py-3 whitespace-nowrap text-gray-500">{formatDate(log.changed_at)}</td>
+                    <td className="px-6 py-3 whitespace-nowrap text-amber-600 text-xs font-mono">{calculateDeleteDate(log.changed_at)}</td>
                     <td className="px-6 py-3 whitespace-nowrap font-medium text-slate-700">{log.changed_by_email || 'System'}</td>
                     <td className="px-6 py-3">
                       <div>
