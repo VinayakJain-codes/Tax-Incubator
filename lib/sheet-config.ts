@@ -26,6 +26,7 @@ const JURISDICTION_OPTIONS = ['UAE', 'UK', 'EU', 'US', 'Germany', 'Italy', 'Irel
 const AUDIT_STATUS_OPTIONS = ['Not Required', 'Planned', 'In Progress', 'Completed', 'Qualified', 'Overdue'];
 const REGULATORY_GROUP_OPTIONS = ['Corporate Tax', 'Corporation Tax', 'Federal & State Tax', 'VAT Regime', 'CT+VAT', 'Other'];
 const ENTITY_STATUS_OPTIONS = ['Active', 'Dormant', 'In Corporation', 'Liquidation', 'Struck Off', 'Other'];
+const HOLDING_COMPANY_OPTIONS = ['Group Parent Ltd', 'Holdings LLC', 'Test', 'Other'];
 const CURRENCY_OPTIONS = ['AED', 'EUR', 'GBP', 'USD', 'CHF', 'SAR', 'Other'];
 const FILING_FREQUENCY_OPTIONS = ['Monthly', 'Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc'];
 const SIGNING_AUTHORITY_OPTIONS = ['Single', 'Joint', 'Any Two', 'Board Resolution Required', 'Other'];
@@ -47,7 +48,7 @@ export const SHEET_CONFIG: Record<string, SheetDef> = {
     table: 'entities',
     label: 'Entity Master',
     sortDefault: 'entity_id',
-    filters: ['entity_status', 'jurisdiction', 'risk_rating', 'regulatory_group_any'],
+    filters: ['entity_status', 'jurisdiction', 'risk_rating', 'regulatory_group_any', 'holding_company'],
     editableFields: [
       'entity_id', 'legal_name', 'trading_name', 'holding_company',
       'jurisdiction', 'address_type', 'full_address', 'city', 'country', 'postal_code',
@@ -58,7 +59,7 @@ export const SHEET_CONFIG: Record<string, SheetDef> = {
       { key: 'entity_id',             label: 'Entity ID',                              type: 'text',         editable: true,  required: true },
       { key: 'legal_name',            label: 'Entity Legal Name',                      type: 'text',         editable: true,  required: true },
       { key: 'trading_name',          label: 'Trading Name',                           type: 'text',         editable: true },
-      { key: 'holding_company',       label: 'Holding Company',                        type: 'text',         editable: true },
+      { key: 'holding_company',       label: 'Holding Company',                        type: 'status',       editable: true, options: HOLDING_COMPANY_OPTIONS },
       { key: 'jurisdiction',          label: 'Jurisdiction',                           type: 'jurisdiction', editable: true, options: JURISDICTION_OPTIONS },
       { key: 'address_type',          label: 'Address Type',                           type: 'status',       editable: true, options: ADDRESS_TYPE_OPTIONS },
       { key: 'full_address',          label: 'Full Address',                           type: 'text',         editable: true },
@@ -216,7 +217,7 @@ export const SHEET_CONFIG: Record<string, SheetDef> = {
     hasYearFilter: true,
     hasCompleted: true,
     filters: ['filing_frequency', 'audit_status'],
-    editableFields: ['entity_id', 'entity_legal_name', 'vat_number', 'tax_regime', 'filing_frequency', 'last_filing_date', 'audit_required', 'audit_status', 'notes', 'is_completed'],
+    editableFields: ['entity_id', 'entity_legal_name', 'vat_number', 'tax_regime', 'filing_frequency', 'last_filing_date', 'next_due_date', 'audit_required', 'audit_status', 'notes', 'is_completed'],
     columns: [
       { key: 'entity_id',          label: 'Entity ID',             type: 'text',    editable: true },
       { key: 'entity_legal_name',  label: 'Entity Legal Name',     type: 'text',    editable: false },
@@ -224,6 +225,7 @@ export const SHEET_CONFIG: Record<string, SheetDef> = {
       { key: 'tax_regime',         label: 'Tax Regime',            type: 'text',    editable: true },
       { key: 'filing_frequency',   label: 'Filing Frequency',      type: 'status',  editable: true, options: FILING_FREQUENCY_OPTIONS },
       { key: 'last_filing_date',   label: 'Last Filing Date',      type: 'date',    editable: true },
+      { key: 'next_due_date',      label: 'Next Due Date (Override)', type: 'date', editable: true },
       { key: '_next_due_date',     label: 'Next Due Date (Auto)',   type: 'auto',    editable: false, auto: true },
       { key: '_days_to_due',       label: 'Days to Due (Auto)',     type: 'auto',    editable: false, auto: true },
       { key: '_filing_status',     label: 'Filing Status (Auto)',   type: 'auto',    editable: false, auto: true },

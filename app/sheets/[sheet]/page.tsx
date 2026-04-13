@@ -28,13 +28,18 @@ function injectAutoFields(rows: any[], table: string): any[] {
 
     // VAT Matrix auto fields
     if (table === 'vat_matrix') {
-      const ndd = getNextDueDate(r.last_filing_date, r.filing_frequency);
+      let ndd: Date | null = null;
+      if (r.next_due_date) {
+        ndd = new Date(r.next_due_date);
+        if (isNaN(ndd.getTime())) ndd = null;
+      }
+      if (!ndd) ndd = getNextDueDate(r.last_filing_date, r.filing_frequency);
       const days = daysFromToday(ndd);
       r._next_due_date  = ndd ? ndd.toISOString().split('T')[0] : '—';
       r._days_to_due    = days !== null ? days : '—';
       const status = getFilingStatus(ndd);
       r._filing_status  = status;
-      r._reminder_flag  = getFilingReminderFlag(status) || 'No';
+      r._reminder_flag  = getFilingReminderFlag(status) || '';
     }
 
     // CT Matrix auto fields
@@ -50,7 +55,7 @@ function injectAutoFields(rows: any[], table: string): any[] {
       r._days_to_due    = days !== null ? days : '—';
       const status = getFilingStatus(ndd);
       r._filing_status  = status;
-      r._reminder_flag  = getFilingReminderFlag(status) || 'No';
+      r._reminder_flag  = getFilingReminderFlag(status) || '';
     }
 
     // Licenses auto fields
@@ -59,7 +64,7 @@ function injectAutoFields(rows: any[], table: string): any[] {
       r._days_to_expiry = days !== null ? days : '—';
       const status = getLicenseStatus(r.expiry_date);
       r._filing_status  = status || '—';
-      r._reminder_flag  = getLicenseReminderFlag(status) || 'No';
+      r._reminder_flag  = getLicenseReminderFlag(status) || '';
     }
 
     // Renewal Calendar auto fields
@@ -68,7 +73,7 @@ function injectAutoFields(rows: any[], table: string): any[] {
       r._days_to_due   = days !== null ? days : '—';
       const rag = getRAG(r.due_date);
       r._rag           = rag || '—';
-      r._reminder_flag = getCalendarReminderFlag(rag) || 'No';
+      r._reminder_flag = getCalendarReminderFlag(rag) || '';
     }
 
     return r;
@@ -149,6 +154,11 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
           if (config.table === 'ct_matrix' && dbData.return_due_date) {
             const rrdd = getPeriodEndDate(dbData.return_due_date, dbData.filing_frequency);
             if (rrdd) rolloverData.return_due_date = rrdd.toISOString().split('T')[0];
+          }
+          
+          if (config.table === 'vat_matrix' && dbData.next_due_date) {
+            const ndd = getPeriodEndDate(dbData.next_due_date, dbData.filing_frequency);
+            if (ndd) rolloverData.next_due_date = ndd.toISOString().split('T')[0];
           }
         } else if (config.table === 'licenses' && dbData.expiry_date) {
           // Defaults to 1-year renewal for licenses

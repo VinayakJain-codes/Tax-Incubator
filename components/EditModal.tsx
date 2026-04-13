@@ -20,7 +20,14 @@ const CLOSURE_TABLES = ['bank_accounts'];
 export default function EditModal({ isOpen, onClose, config, initialData, onSave }: EditModalProps) {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [isSaving, setIsSaving] = useState(false);
-  const [entities, setEntities] = useState<{ entity_id: string; legal_name: string }[]>([]);
+  const [entities, setEntities] = useState<{ 
+    entity_id: string; 
+    legal_name: string;
+    full_address?: string;
+    city?: string;
+    country?: string;
+    postal_code?: string;
+  }[]>([]);
   // Track pending lifecycle date prompts
   const [pendingLifecycle, setPendingLifecycle] = useState<{
     field: 'resignation_date' | 'closure_date';
@@ -33,7 +40,7 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
     import('../lib/supabase').then(({ supabase }) => {
       supabase
         .from('entities')
-        .select('entity_id, legal_name')
+        .select('entity_id, legal_name, full_address, city, country, postal_code')
         .eq('is_deleted', false)
         .order('entity_id', { ascending: true })
         .then(({ data }) => {
@@ -128,11 +135,22 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
   // When entity_id is picked, auto-fill entity_legal_name too
   const handleEntitySelect = (entityId: string) => {
     const found = entities.find(e => e.entity_id === entityId);
-    setFormData(prev => ({
-      ...prev,
-      entity_id: entityId,
-      ...(found ? { entity_legal_name: found.legal_name } : {}),
-    }));
+    
+    const updates: Record<string, any> = { entity_id: entityId };
+    
+    if (found) {
+      updates.entity_legal_name = found.legal_name;
+      
+      // Auto-populate address fields when on the addresses sheet
+      if (config.table === 'addresses') {
+        updates.address_line_1 = found.full_address || '';
+        updates.city = found.city || '';
+        updates.country = found.country || '';
+        updates.postal_code = found.postal_code || '';
+      }
+    }
+    
+    setFormData(prev => ({ ...prev, ...updates }));
   };
 
   const inputStyle = {

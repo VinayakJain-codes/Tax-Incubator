@@ -44,15 +44,26 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
   const filterOptions = useMemo(() => {
     const opts: Record<string, string[]> = {};
     config.filters.forEach(key => {
-      if (key === 'is_resigned' || key === 'is_closed') {
+      // 1. Check if the column has predefined options in the config
+      const colDef = config.columns.find(c => c.key === key);
+      if (colDef?.options) {
+        opts[key] = colDef.options;
+        return;
+      }
+
+      // 2. Special handling for boolean lifecycle fields
+      const isBool = key === 'is_resigned' || key === 'is_closed' || key === 'is_completed' || colDef?.type === 'boolean';
+      if (isBool) {
         opts[key] = ['true', 'false'];
         return;
       }
+
+      // 3. Fallback to deriving from data for dynamic fields (like holding_company)
       const uniqueVals = new Set(data.map(d => d[key]).filter(v => v !== null && v !== undefined && v !== ''));
       opts[key] = Array.from(uniqueVals as Set<string>).sort();
     });
     return opts;
-  }, [data, config.filters]);
+  }, [data, config.filters, config.columns]);
 
   const filteredData = useMemo(() => {
     return data.filter(row => {
@@ -68,8 +79,14 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
         }
       }
       if (search) {
-        const rowString = Object.values(row).join(' ').toLowerCase();
-        if (!rowString.includes(search.toLowerCase())) return false;
+        const query = search.toLowerCase();
+        // Only search visible columns defined in config
+        const isMatch = config.columns.some(col => {
+          const val = row[col.key];
+          if (val === null || val === undefined) return false;
+          return String(val).toLowerCase().includes(query);
+        });
+        if (!isMatch) return false;
       }
       for (const [key, val] of Object.entries(filters)) {
         if (!val) continue;
@@ -79,7 +96,7 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
       }
       return true;
     });
-  }, [data, search, filters, yearFilter, config.hasYearFilter]);
+  }, [data, search, filters, yearFilter, config.hasYearFilter, config.columns]);
 
   const totalPages = Math.ceil(filteredData.length / rowsPerPage);
   const paginatedData = filteredData.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
