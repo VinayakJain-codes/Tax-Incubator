@@ -212,12 +212,28 @@ UPDATE public.directors_officers c
 CREATE OR REPLACE FUNCTION sync_entity_address_to_addresses()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Only act if there is at least some address info or address type
-  IF NEW.full_address IS NOT NULL OR NEW.city IS NOT NULL OR NEW.country IS NOT NULL OR NEW.postal_code IS NOT NULL OR NEW.address_type IS NOT NULL THEN
-    
-    -- Try to update an existing address record with the same address_type for this entity
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO public.addresses (
+      entity_id,
+      entity_legal_name,
+      address_type,
+      address_line_1,
+      city,
+      country,
+      postal_code
+    ) VALUES (
+      NEW.entity_id,
+      NEW.legal_name,
+      NEW.address_type,
+      NEW.full_address,
+      NEW.city,
+      NEW.country,
+      NEW.postal_code
+    );
+  ELSIF TG_OP = 'UPDATE' THEN
     UPDATE public.addresses
     SET
+      address_type = NEW.address_type,
       address_line_1 = NEW.full_address,
       city = NEW.city,
       country = NEW.country,
@@ -225,10 +241,9 @@ BEGIN
       entity_legal_name = NEW.legal_name,
       updated_at = NOW()
     WHERE entity_id = NEW.entity_id 
-      AND address_type IS NOT DISTINCT FROM NEW.address_type
+      AND address_type IS NOT DISTINCT FROM OLD.address_type
       AND is_deleted = false;
       
-    -- If no existing address matches, insert a new one
     IF NOT FOUND THEN
       INSERT INTO public.addresses (
         entity_id,
