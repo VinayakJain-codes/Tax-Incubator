@@ -7,9 +7,12 @@ import { SHEET_CONFIG, type SheetDef } from '@/lib/sheet-config';
 import GenericTable from '@/components/GenericTable';
 import EditModal from '@/components/EditModal';
 import RecordHistory from '@/components/RecordHistory';
+import DeleteRequestModal from '@/components/DeleteRequestModal';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useRole } from '@/lib/useRole';
+import { canEdit } from '@/lib/permissions';
 import { 
   getNextDueDate,
   getPeriodEndDate,
@@ -95,6 +98,9 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
   const [deleteRow, setDeleteRow] = useState<any | null>(null);
   const [deleteReason, setDeleteReason] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
+  // RBAC: Admin-level deletion request modal
+  const [requestDeleteRow, setRequestDeleteRow] = useState<any | null>(null);
+  const { role, isLoading: roleLoading } = useRole();
   const searchParams = useSearchParams();
   const presetEntityId = searchParams.get('entity_id');
 
@@ -269,13 +275,15 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-extrabold text-gray-900 tracking-tight">{config.label}</h2>
-        <button
-          onClick={() => setShowNew(true)}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-gray-900 hover:bg-black rounded-md transition-all duration-200"
-        >
-          <span className="text-base">+</span>
-          Add {config.label.split(' ')[0]}
-        </button>
+        {canEdit(role) && (
+          <button
+            onClick={() => setShowNew(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-gray-900 hover:bg-black rounded-md transition-all duration-200"
+          >
+            <span className="text-base">+</span>
+            Add {config.label.split(' ')[0]}
+          </button>
+        )}
       </div>
 
       <GenericTable
@@ -284,6 +292,7 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
         isLoading={loading}
         onEdit={(row) => setEditRow(row)}
         onDelete={(row) => { setDeleteRow(row); setDeleteReason(''); }}
+        onRequestDelete={(row) => setRequestDeleteRow(row)}
         onHistory={(row) => setHistoryRow(row)}
         yearFilter={yearFilter}
         onYearFilterChange={setYearFilter}
@@ -332,8 +341,8 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
               <span className="text-2xl">🗑️</span>
               <div>
-                <h3 className="text-base font-bold text-gray-900">Request Deletion</h3>
-                <p className="text-xs text-gray-500 mt-0.5">This will be sent to a Manager for approval.</p>
+                <h3 className="text-base font-bold text-gray-900">{role === 'super_admin' ? 'Confirm Deletion' : 'Request Deletion'}</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{role === 'super_admin' ? 'This will permanently soft-delete the record.' : 'This will be sent to a Manager for approval.'}</p>
               </div>
             </div>
             <div className="p-6 space-y-4">
@@ -366,12 +375,22 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
                 disabled={!deleteReason.trim() || isDeleting}
                 className="px-4 py-2 text-sm font-bold text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-40 transition-colors"
               >
-                {isDeleting ? 'Submitting...' : 'Submit for Approval'}
+                {isDeleting ? 'Submitting...' : role === 'super_admin' ? 'Delete Record' : 'Submit for Approval'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Admin-level Delete Request Modal */}
+      <DeleteRequestModal
+        isOpen={!!requestDeleteRow}
+        onClose={() => setRequestDeleteRow(null)}
+        tableName={config.table}
+        recordId={requestDeleteRow ? String(requestDeleteRow[config.table === 'entities' ? 'entity_id' : 'id']) : ''}
+        entityId={requestDeleteRow?.entity_id}
+        recordSnapshot={requestDeleteRow || {}}
+      />
     </div>
   );
 }

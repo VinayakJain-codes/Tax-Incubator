@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import type { SheetDef } from '../lib/sheet-config';
 import toast from 'react-hot-toast';
+import { useRole } from '@/lib/useRole';
+import { canEdit } from '@/lib/permissions';
 
 interface EditModalProps {
   isOpen: boolean;
@@ -20,6 +22,8 @@ const CLOSURE_TABLES = ['bank_accounts'];
 export default function EditModal({ isOpen, onClose, config, initialData, onSave }: EditModalProps) {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const { role } = useRole();
+  const readOnly = !canEdit(role);
   const [entities, setEntities] = useState<{ 
     entity_id: string; 
     legal_name: string;
@@ -71,7 +75,7 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
 
   if (!isOpen) return null;
 
-  const isCompleted = config.hasCompleted && !!formData.is_completed && !!initialData.is_completed;
+  const isCompleted = (config.hasCompleted && !!formData.is_completed && !!initialData.is_completed) || readOnly;
   const hasChanges = Object.keys(formData).some(key => formData[key] !== initialData[key]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -176,8 +180,13 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
         {/* Header */}
         <div className="px-6 py-4 flex justify-between items-center shrink-0 border-b border-gray-100 bg-white">
           <h3 className="text-lg font-bold text-gray-900">
-            Edit {config.label} Record
-            {isCompleted && (
+            {readOnly ? 'View' : 'Edit'} {config.label} Record
+            {readOnly && (
+              <span className="ml-2 text-xs font-normal px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                View Only
+              </span>
+            )}
+            {!readOnly && config.hasCompleted && !!formData.is_completed && !!initialData.is_completed && (
               <span className="ml-2 text-xs font-normal px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
                 Completed — Read Only
               </span>

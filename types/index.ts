@@ -1,3 +1,15 @@
+// RBAC types
+export type UserRole = 'super_admin' | 'admin' | 'viewer';
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name?: string;
+  role: UserRole;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export type Json =
 | string
 | number

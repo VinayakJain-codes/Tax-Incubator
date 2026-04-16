@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react';
 import FilterBar from './FilterBar';
 import StatusBadge from './StatusBadge';
 import type { SheetDef } from '../lib/sheet-config';
+import { useRole } from '@/lib/useRole';
+import { canEdit, canDelete } from '@/lib/permissions';
 
 interface GenericTableProps {
   config: SheetDef;
@@ -11,6 +13,7 @@ interface GenericTableProps {
   isLoading: boolean;
   onEdit: (row: any) => void;
   onDelete: (row: any) => void;
+  onRequestDelete?: (row: any) => void;
   onHistory: (row: any) => void;
   yearFilter?: number | null;
   onYearFilterChange?: (year: number | null) => void;
@@ -24,7 +27,8 @@ function isRowFrozen(row: any, config: SheetDef): boolean {
   return false;
 }
 
-export default function GenericTable({ config, data = [], isLoading, onEdit, onDelete, onHistory, yearFilter, onYearFilterChange }: GenericTableProps) {
+export default function GenericTable({ config, data = [], isLoading, onEdit, onDelete, onRequestDelete, onHistory, yearFilter, onYearFilterChange }: GenericTableProps) {
+  const { role, isLoading: roleLoading } = useRole();
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(1);
@@ -200,7 +204,7 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
                       >
                         ◷
                       </button>
-                      {!frozen && (
+                      {!frozen && canEdit(role) && (
                         <button 
                           onClick={() => onEdit(row)}
                           className="transition-colors duration-200 px-3 py-1 rounded text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 hover:text-gray-900"
@@ -209,7 +213,7 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
                           Edit
                         </button>
                       )}
-                      {config.table === 'entities' && !frozen && (
+                      {config.table === 'entities' && !frozen && canEdit(role) && (
                         <a 
                           href={`/sheets/addresses?entity_id=${row.entity_id}`}
                           className="transition-colors duration-200 px-3 py-1 rounded text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:text-indigo-900 inline-block"
@@ -218,13 +222,25 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
                           + Address
                         </a>
                       )}
-                      <button 
-                        onClick={() => onDelete(row)}
-                        className="transition-colors duration-200 px-2 py-1 rounded text-sm font-medium text-red-400 hover:text-red-600 hover:bg-red-50"
-                        title="Request Deletion"
-                      >
-                        ✕
-                      </button>
+                      {/* Super Admin: direct delete. Admin: request delete. Viewer: hidden */}
+                      {!frozen && role === 'super_admin' && (
+                        <button 
+                          onClick={() => onDelete(row)}
+                          className="transition-colors duration-200 px-2 py-1 rounded text-sm font-medium text-red-400 hover:text-red-600 hover:bg-red-50"
+                          title="Delete Record"
+                        >
+                          ✕
+                        </button>
+                      )}
+                      {!frozen && role === 'admin' && onRequestDelete && (
+                        <button 
+                          onClick={() => onRequestDelete(row)}
+                          className="transition-colors duration-200 px-2 py-1 rounded text-sm font-medium text-amber-500 hover:text-amber-700 hover:bg-amber-50"
+                          title="Request Deletion"
+                        >
+                          ⊘ Request
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
