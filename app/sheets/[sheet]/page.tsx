@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { logEditChanges } from '@/lib/audit';
 import { supabase } from '@/lib/supabase';
 import { SHEET_CONFIG, type SheetDef } from '@/lib/sheet-config';
 import GenericTable from '@/components/GenericTable';
@@ -134,8 +133,6 @@ export default function SheetPage({ params }: { params: { sheet: string } }) {
       const dbData = Object.fromEntries(
         Object.entries(newData).filter(([k]) => !k.startsWith('_'))
       );
-
-      await logEditChanges(config.table, recordId, editRow, dbData);
 
       const { error } = await (supabase.from(config.table) as any)
         .update(dbData)
