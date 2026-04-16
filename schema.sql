@@ -451,4 +451,684 @@ CREATE TRIGGER renewal_calendar_audit AFTER INSERT OR UPDATE OR DELETE ON public
  - -   = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =  
  - -   E N D   O F   M I G R A T I O N  
  - -   = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =  
- 
+ -- ================================================================
+-- Phase 2 Schema Migration
+-- Run this in your Supabase SQL Editor to apply all Phase 2 changes
+-- ================================================================
+
+-- 1. Entity Master: Remove logo_asset_image column
+ALTER TABLE public.entities DROP COLUMN IF EXISTS logo_asset_image;
+
+-- 2. Addresses: Add entity_legal_name column (auto-synced by trigger)
+ALTER TABLE public.addresses ADD COLUMN IF NOT EXISTS entity_legal_name text;
+
+-- 3. Signatories: Add entity_id + entity_legal_name columns
+ALTER TABLE public.signatories ADD COLUMN IF NOT EXISTS entity_id text REFERENCES public.entities(entity_id);
+ALTER TABLE public.signatories ADD COLUMN IF NOT EXISTS entity_legal_name text;
+
+-- 4. CT Matrix: Remove data_protection_regime column
+ALTER TABLE public.ct_matrix DROP COLUMN IF EXISTS data_protection_regime;
+ALTER TABLE public.ct_matrix DROP COLUMN IF EXISTS data_protection; -- boolean toggle, also removing if present
+
+-- 5. Compliance tables: Add is_completed boolean
+ALTER TABLE public.vat_matrix    ADD COLUMN IF NOT EXISTS is_completed boolean DEFAULT false;
+ALTER TABLE public.ct_matrix     ADD COLUMN IF NOT EXISTS is_completed boolean DEFAULT false;
+ALTER TABLE public.licenses      ADD COLUMN IF NOT EXISTS is_completed boolean DEFAULT false;
+ALTER TABLE public.auditors      ADD COLUMN IF NOT EXISTS is_completed boolean DEFAULT false;
+
+-- 6. People tables: Add is_resigned + resignation_date
+ALTER TABLE public.directors_officers ADD COLUMN IF NOT EXISTS is_resigned  boolean DEFAULT false;
+ALTER TABLE public.directors_officers ADD COLUMN IF NOT EXISTS resignation_date date;
+
+ALTER TABLE public.ubo_register ADD COLUMN IF NOT EXISTS is_resigned  boolean DEFAULT false;
+ALTER TABLE public.ubo_register ADD COLUMN IF NOT EXISTS resignation_date date;
+
+ALTER TABLE public.signatories ADD COLUMN IF NOT EXISTS is_resigned  boolean DEFAULT false;
+ALTER TABLE public.signatories ADD COLUMN IF NOT EXISTS resignation_date date;
+
+-- 7. Bank Accounts: Add is_closed + closure_date
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS is_closed   boolean DEFAULT false;
+ALTER TABLE public.bank_accounts ADD COLUMN IF NOT EXISTS closure_date date;
+
+-- 8. Deletion Requests: New table for manager approval
+CREATE TABLE IF NOT EXISTS public.deletion_requests (
+  id uuid primary key default gen_random_uuid(),
+  table_name text not null,
+  record_id text not null,
+  entity_id text,
+  record_snapshot jsonb,      -- JSON snapshot of the record at time of deletion request
+  reason text not null,
+  requested_by_id uuid,
+  requested_by_email text,
+  requested_at timestamptz default now(),
+  status text default 'Pending', -- Pending | Approved | Rejected
+  reviewed_by_email text,
+  reviewed_at timestamptz,
+  review_notes text
+);
+
+-- Enable RLS
+ALTER TABLE public.deletion_requests ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Anyone authenticated can insert (request deletion)
+CREATE POLICY IF NOT EXISTS "Anyone can request deletion"
+  ON public.deletion_requests FOR INSERT TO authenticated WITH CHECK (true);
+
+-- Policy: Anyone authenticated can view requests
+CREATE POLICY IF NOT EXISTS "Anyone can view deletion requests"
+  ON public.deletion_requests FOR SELECT TO authenticated USING (true);
+
+-- Policy: Anyone authenticated can update (for manager approval)
+CREATE POLICY IF NOT EXISTS "Anyone can update deletion requests"
+  ON public.deletion_requests FOR UPDATE TO authenticated USING (true);
+
+-- 9. Sync trigger for addresses.entity_legal_name
+-- (addresses didn't have entity_legal_name before, so we add its trigger)
+
+-- Bottom-up trigger already exists for addresses but may need to be refreshed
+-- since addresses.entity_legal_name column is new.
+-- Re-run bottom-up trigger (the function already handles it):
+DROP TRIGGER IF EXISTS sync_addresses_entity_name ON public.addresses;
+CREATE OR REPLACE TRIGGER sync_addresses_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.addresses
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+-- Sync trigger for signatories.entity_legal_name
+DROP TRIGGER IF EXISTS sync_signatories_entity_name ON public.signatories;
+CREATE OR REPLACE TRIGGER sync_signatories_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.signatories
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+-- 10. Backfill entity_legal_name for existing addresses and signatories
+UPDATE public.addresses a
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE a.entity_id = e.entity_id AND a.entity_legal_name IS NULL;
+
+-- 11. Add year column to auditors for annual filtering
+ALTER TABLE public.auditors ADD COLUMN IF NOT EXISTS audit_year int;
+
+-- ================================================================
+-- END OF MIGRATION
+-- ================================================================
+-- ================================================================
+-- Phase 5 Schema Migration
+-- ================================================================
+
+-- 1. Shareholders: Add address
+ALTER TABLE public.shareholders ADD COLUMN IF NOT EXISTS address text;
+
+-- 2. Signatories: Add bank_account_name
+ALTER TABLE public.signatories ADD COLUMN IF NOT EXISTS bank_account_name text;
+
+-- 3. Auditors: Remove audit_period
+ALTER TABLE public.auditors DROP COLUMN IF EXISTS audit_period;
+
+-- 4. Signatories Trigger: Sync bank_account_name
+CREATE OR REPLACE FUNCTION sync_bank_account_name_on_child()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.bank_account_id IS NOT NULL THEN
+    SELECT account_name INTO NEW.bank_account_name
+    FROM public.bank_accounts
+    WHERE bank_account_id = NEW.bank_account_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS sync_signatories_bank_account_name ON public.signatories;
+CREATE TRIGGER sync_signatories_bank_account_name
+  BEFORE INSERT OR UPDATE OF bank_account_id ON public.signatories
+  FOR EACH ROW EXECUTE FUNCTION sync_bank_account_name_on_child();
+-- ============================================================
+-- schema_updates.sql
+-- Apply these in your Supabase SQL Editor to bring the
+-- live database in line with schema.sql
+-- ============================================================
+
+-- 1. UBO Register — missing columns in live DB
+ALTER TABLE public.ubo_register
+  ADD COLUMN IF NOT EXISTS entity_legal_name text,
+  ADD COLUMN IF NOT EXISTS photo_asset_image text;
+
+-- 2. Bank Accounts — missing columns in live DB
+ALTER TABLE public.bank_accounts
+  ADD COLUMN IF NOT EXISTS entity_legal_name text,
+  ADD COLUMN IF NOT EXISTS bank_account_id text;
+
+-- 3. Signatories — missing columns in live DB
+ALTER TABLE public.signatories
+  ADD COLUMN IF NOT EXISTS signatory_id text;
+
+-- 4. VAT Matrix — add entity_legal_name
+ALTER TABLE public.vat_matrix
+  ADD COLUMN IF NOT EXISTS entity_legal_name text;
+
+-- 5. CT Regulatory Matrix — missing columns in live DB
+ALTER TABLE public.ct_matrix
+  ADD COLUMN IF NOT EXISTS entity_legal_name text,
+  ADD COLUMN IF NOT EXISTS data_protection_regime text;
+
+-- 6. Licenses — add entity_legal_name
+ALTER TABLE public.licenses
+  ADD COLUMN IF NOT EXISTS entity_legal_name text;
+
+-- 7. Auditors — add entity_legal_name
+ALTER TABLE public.auditors
+  ADD COLUMN IF NOT EXISTS entity_legal_name text;
+
+-- 8. Document Control — add entity_legal_name (for consistency)
+ALTER TABLE public.document_control
+  ADD COLUMN IF NOT EXISTS entity_legal_name text;
+
+-- 9. Controls Log — add entity_legal_name (for consistency)
+ALTER TABLE public.controls_log
+  ADD COLUMN IF NOT EXISTS entity_legal_name text;
+
+-- 10. Renewal Calendar — missing columns in live DB
+ALTER TABLE public.renewal_calendar
+  ADD COLUMN IF NOT EXISTS entity_legal_name text,
+  ADD COLUMN IF NOT EXISTS item_id text;
+
+-- ============================================================
+-- IMPORTANT FIX NEEDED IN SUPABASE LIVE DB:
+-- The signatories table has bank_account_id referencing bank_accounts
+-- but the live DB may have it as a UUID FK instead of a text field.
+-- If you see error: invalid input syntax for type uuid: "B-001"
+-- Run this fix:
+-- ============================================================
+
+-- Fix: Drop incorrect FK constraint and re-add bank_account_id as text
+ALTER TABLE public.signatories
+  DROP CONSTRAINT IF EXISTS signatories_bank_account_id_fkey;
+
+-- If the column type is wrong:
+-- ALTER TABLE public.signatories ALTER COLUMN bank_account_id TYPE text USING bank_account_id::text;
+
+-- ============================================================
+-- sync_triggers.sql
+-- Entity Legal Name Auto-Sync Triggers
+--
+-- HOW IT WORKS:
+-- 1. BOTTOM-UP (on INSERT/UPDATE of any child row):
+--    When a child row gains an entity_id, this trigger
+--    automatically stamps entity_legal_name from the entities table.
+--
+-- 2. TOP-DOWN (on UPDATE of entities.legal_name):
+--    When the master entity name changes, a trigger cascades
+--    the new name to ALL child table rows sharing that entity_id.
+--
+-- Run this entire file once in your Supabase SQL Editor.
+-- ============================================================
+
+
+-- ============================================================
+-- PART 1: Bottom-Up Sync Function
+-- Runs BEFORE INSERT OR UPDATE on each child table.
+-- Looks up entity_legal_name from entities and stamps it.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION sync_entity_legal_name_on_child()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.entity_id IS NOT NULL THEN
+    SELECT legal_name INTO NEW.entity_legal_name
+    FROM public.entities
+    WHERE entity_id = NEW.entity_id
+      AND is_deleted = false;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- Apply bottom-up sync triggers to all child tables
+
+CREATE OR REPLACE TRIGGER sync_ubo_register_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.ubo_register
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_bank_accounts_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.bank_accounts
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_vat_matrix_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.vat_matrix
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_ct_matrix_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.ct_matrix
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_licenses_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.licenses
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_auditors_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.auditors
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_document_control_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.document_control
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_controls_log_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.controls_log
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_renewal_calendar_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.renewal_calendar
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_directors_officers_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.directors_officers
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+CREATE OR REPLACE TRIGGER sync_addresses_entity_name
+  BEFORE INSERT OR UPDATE OF entity_id ON public.addresses
+  FOR EACH ROW EXECUTE FUNCTION sync_entity_legal_name_on_child();
+
+
+-- ============================================================
+-- PART 2: Top-Down Cascade Function
+-- Runs AFTER UPDATE on entities when legal_name changes.
+-- Cascades new name to ALL child rows with matching entity_id.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION cascade_entity_legal_name_to_children()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Only act if legal_name actually changed
+  IF NEW.legal_name IS DISTINCT FROM OLD.legal_name THEN
+
+    UPDATE public.ubo_register
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.bank_accounts
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.vat_matrix
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.ct_matrix
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.licenses
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.auditors
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.document_control
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.controls_log
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.renewal_calendar
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+    UPDATE public.directors_officers
+      SET entity_legal_name = NEW.legal_name
+      WHERE entity_id = NEW.entity_id;
+
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- Apply the top-down cascade trigger on the entities master table
+
+CREATE OR REPLACE TRIGGER cascade_entity_name_to_all_children
+  AFTER UPDATE OF legal_name ON public.entities
+  FOR EACH ROW EXECUTE FUNCTION cascade_entity_legal_name_to_children();
+
+
+-- ============================================================
+-- PART 3: Backfill existing records
+-- Run once to stamp entity_legal_name on all existing rows
+-- that already have an entity_id but no legal_name stamped.
+-- ============================================================
+
+UPDATE public.ubo_register c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.bank_accounts c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.vat_matrix c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.ct_matrix c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.licenses c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.auditors c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.document_control c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.controls_log c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.renewal_calendar c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+UPDATE public.directors_officers c
+  SET entity_legal_name = e.legal_name
+  FROM public.entities e
+  WHERE c.entity_id = e.entity_id AND c.entity_legal_name IS NULL;
+
+-- ============================================================
+-- PART 4: Sync Entity Address to Addresses Table
+-- Runs AFTER INSERT OR UPDATE on entities.
+-- Automatically creates/updates an address record based on entity.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION sync_entity_address_to_addresses()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO public.addresses (
+      entity_id,
+      entity_legal_name,
+      address_type,
+      address_line_1,
+      city,
+      country,
+      postal_code
+    ) VALUES (
+      NEW.entity_id,
+      NEW.legal_name,
+      NEW.address_type,
+      NEW.full_address,
+      NEW.city,
+      NEW.country,
+      NEW.postal_code
+    );
+  ELSIF TG_OP = 'UPDATE' THEN
+    UPDATE public.addresses
+    SET
+      address_type = NEW.address_type,
+      address_line_1 = NEW.full_address,
+      city = NEW.city,
+      country = NEW.country,
+      postal_code = NEW.postal_code,
+      entity_legal_name = NEW.legal_name,
+      updated_at = NOW()
+    WHERE entity_id = NEW.entity_id 
+      AND address_type IS NOT DISTINCT FROM OLD.address_type
+      AND is_deleted = false;
+      
+    IF NOT FOUND THEN
+      INSERT INTO public.addresses (
+        entity_id,
+        entity_legal_name,
+        address_type,
+        address_line_1,
+        city,
+        country,
+        postal_code
+      ) VALUES (
+        NEW.entity_id,
+        NEW.legal_name,
+        NEW.address_type,
+        NEW.full_address,
+        NEW.city,
+        NEW.country,
+        NEW.postal_code
+      );
+    END IF;
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+DROP TRIGGER IF EXISTS trigger_sync_entity_address_to_addresses ON public.entities;
+CREATE TRIGGER trigger_sync_entity_address_to_addresses
+  AFTER INSERT OR UPDATE OF full_address, address_type, city, country, postal_code, legal_name
+  ON public.entities
+  FOR EACH ROW
+  EXECUTE FUNCTION sync_entity_address_to_addresses();
+-- ============================================================
+-- RBAC Schema Migration
+-- Creates user_profiles, signup trigger, role helpers, and RLS
+-- ============================================================
+
+-- 1. Create user_role enum type
+DO $$ BEGIN
+  CREATE TYPE public.user_role AS ENUM ('super_admin', 'admin', 'viewer');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- 2. Create user_profiles table
+CREATE TABLE IF NOT EXISTS public.user_profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email text NOT NULL,
+  name text,
+  role public.user_role DEFAULT 'viewer' NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+-- 3. Auto-create Viewer profile on signup
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.user_profiles (id, email, name, role)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', ''),
+    'viewer'
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- 4. Role helper functions
+CREATE OR REPLACE FUNCTION public.get_user_role(uid uuid)
+RETURNS public.user_role AS $$
+  SELECT role FROM public.user_profiles WHERE id = uid;
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION public.is_admin_or_super(uid uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_profiles
+    WHERE id = uid AND role IN ('admin', 'super_admin')
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION public.is_super_admin(uid uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_profiles
+    WHERE id = uid AND role = 'super_admin'
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- ============================================================
+-- 5. RLS for user_profiles
+-- ============================================================
+ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own profile
+CREATE POLICY IF NOT EXISTS "Users can read own profile"
+  ON public.user_profiles FOR SELECT
+  TO authenticated
+  USING (id = auth.uid());
+
+-- Super admins can read all profiles
+CREATE POLICY IF NOT EXISTS "Super admins read all profiles"
+  ON public.user_profiles FOR SELECT
+  TO authenticated
+  USING (public.is_super_admin(auth.uid()));
+
+-- Super admins can update all profiles (role changes)
+CREATE POLICY IF NOT EXISTS "Super admins update all profiles"
+  ON public.user_profiles FOR UPDATE
+  TO authenticated
+  USING (public.is_super_admin(auth.uid()));
+
+-- ============================================================
+-- 6. Updated RLS for deletion_requests (role-aware)
+-- ============================================================
+-- Drop old blanket policies
+DROP POLICY IF EXISTS "Anyone can request deletion" ON public.deletion_requests;
+DROP POLICY IF EXISTS "Anyone can view deletion requests" ON public.deletion_requests;
+DROP POLICY IF EXISTS "Anyone can update deletion requests" ON public.deletion_requests;
+
+-- Admins and Super Admins can insert deletion requests
+CREATE POLICY IF NOT EXISTS "Admins can request deletion"
+  ON public.deletion_requests FOR INSERT
+  TO authenticated
+  WITH CHECK (public.is_admin_or_super(auth.uid()));
+
+-- Admins see own requests, Super Admins see all
+CREATE POLICY IF NOT EXISTS "Role-aware view deletion requests"
+  ON public.deletion_requests FOR SELECT
+  TO authenticated
+  USING (
+    public.is_super_admin(auth.uid())
+    OR requested_by_id = auth.uid()
+  );
+
+-- Only Super Admins can approve/reject (update)
+CREATE POLICY IF NOT EXISTS "Super admins update deletion requests"
+  ON public.deletion_requests FOR UPDATE
+  TO authenticated
+  USING (public.is_super_admin(auth.uid()));
+
+-- ============================================================
+-- 7. RLS for core data tables
+-- All authenticated users can SELECT. Only admin/super can INSERT/UPDATE/DELETE.
+-- ============================================================
+
+-- Helper macro: apply standard RBAC policies to a table
+-- We apply individually since Postgres doesn't support DO for policies well across tables
+
+-- entities
+CREATE POLICY IF NOT EXISTS "rbac_select_entities" ON public.entities FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_entities" ON public.entities FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_entities" ON public.entities FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_entities" ON public.entities FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- addresses
+CREATE POLICY IF NOT EXISTS "rbac_select_addresses" ON public.addresses FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_addresses" ON public.addresses FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_addresses" ON public.addresses FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_addresses" ON public.addresses FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- directors_officers
+CREATE POLICY IF NOT EXISTS "rbac_select_directors" ON public.directors_officers FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_directors" ON public.directors_officers FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_directors" ON public.directors_officers FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_directors" ON public.directors_officers FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- ubo_register
+CREATE POLICY IF NOT EXISTS "rbac_select_ubo" ON public.ubo_register FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_ubo" ON public.ubo_register FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_ubo" ON public.ubo_register FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_ubo" ON public.ubo_register FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- bank_accounts
+CREATE POLICY IF NOT EXISTS "rbac_select_banks" ON public.bank_accounts FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_banks" ON public.bank_accounts FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_banks" ON public.bank_accounts FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_banks" ON public.bank_accounts FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- signatories
+CREATE POLICY IF NOT EXISTS "rbac_select_signatories" ON public.signatories FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_signatories" ON public.signatories FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_signatories" ON public.signatories FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_signatories" ON public.signatories FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- vat_matrix
+CREATE POLICY IF NOT EXISTS "rbac_select_vat" ON public.vat_matrix FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_vat" ON public.vat_matrix FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_vat" ON public.vat_matrix FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_vat" ON public.vat_matrix FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- ct_matrix
+CREATE POLICY IF NOT EXISTS "rbac_select_ct" ON public.ct_matrix FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_ct" ON public.ct_matrix FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_ct" ON public.ct_matrix FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_ct" ON public.ct_matrix FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- licenses
+CREATE POLICY IF NOT EXISTS "rbac_select_licenses" ON public.licenses FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_licenses" ON public.licenses FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_licenses" ON public.licenses FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_licenses" ON public.licenses FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- auditors
+CREATE POLICY IF NOT EXISTS "rbac_select_auditors" ON public.auditors FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_auditors" ON public.auditors FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_auditors" ON public.auditors FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_auditors" ON public.auditors FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- document_control
+CREATE POLICY IF NOT EXISTS "rbac_select_docs" ON public.document_control FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_docs" ON public.document_control FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_docs" ON public.document_control FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_docs" ON public.document_control FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- controls_log
+CREATE POLICY IF NOT EXISTS "rbac_select_controls" ON public.controls_log FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_controls" ON public.controls_log FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_controls" ON public.controls_log FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_controls" ON public.controls_log FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- renewal_calendar
+CREATE POLICY IF NOT EXISTS "rbac_select_renewals" ON public.renewal_calendar FOR SELECT TO authenticated USING (true);
+CREATE POLICY IF NOT EXISTS "rbac_insert_renewals" ON public.renewal_calendar FOR INSERT TO authenticated WITH CHECK (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_update_renewals" ON public.renewal_calendar FOR UPDATE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+CREATE POLICY IF NOT EXISTS "rbac_delete_renewals" ON public.renewal_calendar FOR DELETE TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- audit_log (read-only for admin+, no writes via RLS — trigger handles inserts)
+CREATE POLICY IF NOT EXISTS "rbac_select_audit_log" ON public.audit_log FOR SELECT TO authenticated USING (public.is_admin_or_super(auth.uid()));
+
+-- ============================================================
+-- END RBAC MIGRATION
+-- ============================================================

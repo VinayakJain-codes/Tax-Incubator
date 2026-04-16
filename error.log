@@ -1,6 +1,0 @@
-TypeError: XLSX.readFile is not a function
-    at main (file:///D:/Startup/Symax-Governance/upload-excel.mjs:137:25)
-    at file:///D:/Startup/Symax-Governance/upload-excel.mjs:174:1
-    at ModuleJob.run (node:internal/modules/esm/module_job:345:25)
-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:651:26)
-    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)

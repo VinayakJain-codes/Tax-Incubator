@@ -11,6 +11,20 @@ Symax Corporate Governance and Control Dashboard. This project provides a compre
 
 ## Getting Started
 
+### 1. Database Setup (Supabase)
+Create a new project on [Supabase](https://supabase.com).
+
+**Important Authentication Settings:**
+- Navigate to **Authentication > Providers > Email**.
+- **Disable "Confirm email"**. The platform operates on a manual admin-approval process (`access_requests` table). Users do NOT confirm their own emails; instead, Super Admins approve them.
+
+**Schema Installation:**
+- Go to the **SQL Editor** in Supabase.
+- Open the `schema.sql` file from the root of this repository.
+- Copy everything and run it as a single batch. This creates all necessary tables, Row Level Security (RLS) policies, and the unified `log_audit()` tracking trigger.
+
+### 2. Environment Setup
+
 ### Prerequisites
 
 Ensure you have Node.js and NPM installed. 

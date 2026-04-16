@@ -36,7 +36,30 @@ yarn-error.log*
 next-env.d.ts
 
 # Symax specific
-"Group_Governance_and_Control_v6_SJ Comments.xlsx"
+Group_Governance_and_Control*.xlsx
 ts_errors.log
 tsc_errors.txt
 .planning/
+
+# Migration scripts and logs
+debug.txt
+error.log
+results*.txt
+final_*.txt
+upload-output.txt
+scan-output.json
+scan-report.json
+upload-excel.mjs
+scan-excel.js
+list-sheets.cjs
+
+# Internal planning artifacts
+RBAC_PLAN.md
+missing-columns-prd.md
+
+# Deprecated schema fragments
+schema_phase*.sql
+schema_rbac.sql
+schema_updates.sql
+sync_triggers.sql
+

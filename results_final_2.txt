@@ -1,58 +1,0 @@
-📂 Reading Excel file: Group_Governance_and_Control_v6_SJ Comments.xlsx
-📋 Found 20 sheets: Executive_Cover, CONTROL_Cover, Parameters, Entity_Master, Addresses, Directors_Officers, UBO_Register, Bank_Accounts, Signatories, VAT_Regulatory_Matrix, CT_Regulatory_Matrix, Licenses_Regulatory, Auditors, Document_Control, Controls_Log, Top_10_Issues, Renewal_Calendar, Governance_Dashboard, Board_Pack, Risk_Heatmap
-
-⏭️  Skipping sheet "Executive_Cover" (no table mapping)
-
-⏭️  Skipping sheet "CONTROL_Cover" (no table mapping)
-
-⏭️  Skipping sheet "Parameters" (no table mapping)
-
-📤 Uploading sheet "Entity_Master" → table "entities" (12 rows)...
-  ✓ 10/12 rows  ✅ Done! 10 rows uploaded.
-
-📤 Uploading sheet "Addresses" → table "addresses" (1 rows)...
-  ✓ 1/1 rows  ✅ Done! 1 rows uploaded.
-
-📤 Uploading sheet "Directors_Officers" → table "directors_officers" (1 rows)...
-  ✓ 1/1 rows  ✅ Done! 1 rows uploaded.
-
-📤 Uploading sheet "UBO_Register" → table "ubo_register" (1 rows)...
-  ⚠️  Completed with 1 chunk error(s). 0 rows uploaded.
-
-📤 Uploading sheet "Bank_Accounts" → table "bank_accounts" (3 rows)...
-  ✓ 3/3 rows  ✅ Done! 3 rows uploaded.
-
-📤 Uploading sheet "Signatories" → table "signatories" (3 rows)...
-  ⚠️  Completed with 1 chunk error(s). 0 rows uploaded.
-
-📤 Uploading sheet "VAT_Regulatory_Matrix" → table "vat_matrix" (49 rows)...
-  ✓ 49/49 rows  ✅ Done! 49 rows uploaded.
-
-📤 Uploading sheet "CT_Regulatory_Matrix" → table "ct_matrix" (11 rows)...
-  ✓ 11/11 rows  ✅ Done! 11 rows uploaded.
-
-📤 Uploading sheet "Licenses_Regulatory" → table "licenses" (99 rows)...
-  ✓ 50/99 rows  ✓ 99/99 rows  ✅ Done! 99 rows uploaded.
-
-📤 Uploading sheet "Auditors" → table "auditors" (10 rows)...
-  ✓ 10/10 rows  ✅ Done! 10 rows uploaded.
-
-⏭️  Skipping sheet "Document_Control" (empty)
-
-⏭️  Skipping sheet "Controls_Log" (empty)
-
-⏭️  Skipping sheet "Top_10_Issues" (no table mapping)
-
-📤 Uploading sheet "Renewal_Calendar" → table "renewal_calendar" (20 rows)...
-  ✓ 20/20 rows  ✅ Done! 20 rows uploaded.
-
-⏭️  Skipping sheet "Governance_Dashboard" (no table mapping)
-
-⏭️  Skipping sheet "Board_Pack" (no table mapping)
-
-⏭️  Skipping sheet "Risk_Heatmap" (no table mapping)
-
-🎉 Done! 11 sheets uploaded, 9 skipped.
-👉 Refresh your dashboard at http://localhost:3000/dashboard to see the data.
-  ❌ Error on rows 0-50: Could not find the 'ubo_id' column of 'ubo_register' in the schema cache
-  ❌ Error on rows 0-50: invalid input syntax for type uuid: "B-001"
