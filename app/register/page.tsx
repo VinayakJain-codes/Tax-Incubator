@@ -24,26 +24,18 @@ export default function RegisterPage() {
 
     setLoading(true);
 
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName },
-        emailRedirectTo: `${window.location.origin}/dashboard`,
-      },
+    const { error } = await supabase.rpc('submit_access_request', {
+      p_full_name: fullName,
+      p_email: email,
+      p_raw_password: password
     });
 
     if (error) {
       toast.error(error.message);
       setLoading(false);
     } else {
-      if (data.session) {
-        toast.success('Account created! Welcome aboard.');
-        router.push('/dashboard');
-      } else {
-        toast.success('Account created! Please check your email to confirm.');
-        router.push('/login');
-      }
+      toast.success('Access Request Submitted! Awaiting Super Admin Approval.');
+      router.push('/login');
     }
   };
 

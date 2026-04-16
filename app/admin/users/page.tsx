@@ -8,6 +8,14 @@ import { roleBadgeColor, roleLabel } from '@/lib/permissions';
 import toast from 'react-hot-toast';
 import type { UserRole, UserProfile } from '@/types';
 
+export type AccessRequest = {
+  id: string;
+  full_name: string;
+  email: string;
+  status: string;
+  created_at: string;
+};
+
 const ROLE_OPTIONS: UserRole[] = ['viewer', 'admin', 'super_admin'];
 
 export default function UserManagementPage() {
@@ -18,6 +26,12 @@ export default function UserManagementPage() {
   const [resetPwdUser, setResetPwdUser] = useState<UserProfile | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [resettingPwd, setResettingPwd] = useState(false);
+  const [confirmDeleteUser, setConfirmDeleteUser] = useState<UserProfile | null>(null);
+
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(true);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+
   const { role: currentRole } = useRole();
 
   const loadUsers = async () => {
@@ -30,7 +44,21 @@ export default function UserManagementPage() {
     setLoading(false);
   };
 
-  useEffect(() => { loadUsers(); }, []);
+  const loadAccessRequests = async () => {
+    setLoadingRequests(true);
+    const { data } = await supabase
+      .from('access_requests')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    setAccessRequests((data as AccessRequest[]) || []);
+    setLoadingRequests(false);
+  };
+
+  useEffect(() => { 
+    loadUsers(); 
+    loadAccessRequests();
+  }, []);
 
   const handleRoleChange = async (userId: string, newRole: UserRole) => {
     // If promoting to super_admin, require confirmation
@@ -99,6 +127,55 @@ export default function UserManagementPage() {
     }
   };
 
+  const handleApproveRequest = async (requestId: string) => {
+    setProcessingRequestId(requestId);
+    try {
+      const { error } = await supabase.rpc('approve_access_request', { p_request_id: requestId });
+      if (error) {
+        toast.error(`Approval failed: ${error.message}`);
+      } else {
+        toast.success('Access Request Approved! User can now log in.');
+        loadAccessRequests();
+        loadUsers();
+      }
+    } finally {
+      setProcessingRequestId(null);
+    }
+  };
+
+  const handleRejectRequest = async (requestId: string) => {
+    if (!confirm('Are you sure you want to reject this access request?')) return;
+    setProcessingRequestId(requestId);
+    try {
+      const { error } = await supabase.rpc('reject_access_request', { p_request_id: requestId });
+      if (error) {
+        toast.error(`Rejection failed: ${error.message}`);
+      } else {
+        toast.success('Access Request Rejected.');
+        loadAccessRequests();
+      }
+    } finally {
+      setProcessingRequestId(null);
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!confirmDeleteUser) return;
+    setUpdating(confirmDeleteUser.id);
+    try {
+      const { error } = await supabase.rpc('delete_user_account', { p_user_id: confirmDeleteUser.id });
+      if (error) {
+        toast.error(`Deletion failed: ${error.message}`);
+      } else {
+        toast.success(`User ${confirmDeleteUser.email} has been permanently deleted.`);
+        setConfirmDeleteUser(null);
+        loadUsers();
+      }
+    } finally {
+      setUpdating(null);
+    }
+  };
+
   return (
     <PermissionGate
       allowedRoles={['super_admin']}
@@ -144,6 +221,33 @@ export default function UserManagementPage() {
           </div>
         )}
 
+        {/* Delete User Confirmation Dialog */}
+        {confirmDeleteUser && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full mx-4">
+              <p className="text-lg font-bold text-red-600 mb-2">⚠️ Delete User Account</p>
+              <p className="text-sm text-gray-600 mb-4">
+                Are you sure you want to completely delete <strong>{confirmDeleteUser.email}</strong>? 
+                This action is irreversible and removes their login identity.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDeleteUser(null)}
+                  className="flex-1 px-4 py-2 text-sm font-medium bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteUser}
+                  className="flex-1 px-4 py-2 text-sm font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                >
+                  Delete User
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Reset Password Dialog */}
         {resetPwdUser && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -179,6 +283,57 @@ export default function UserManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* Pending Requests Section */}
+        {accessRequests.length > 0 && (
+          <div className="mb-8">
+            <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center">
+              Pending Access Requests
+              <span className="ml-2 bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded-full font-bold">
+                {accessRequests.length}
+              </span>
+            </h3>
+            <div className="bg-white border border-amber-200 rounded-lg shadow-sm overflow-hidden">
+              <table className="min-w-full text-sm text-left">
+                <thead className="bg-amber-50/50 border-b border-amber-100">
+                  <tr>
+                    <th className="px-6 py-3 text-[0.65rem] font-semibold uppercase text-gray-500">Email</th>
+                    <th className="px-6 py-3 text-[0.65rem] font-semibold uppercase text-gray-500">Name</th>
+                    <th className="px-6 py-3 text-[0.65rem] font-semibold uppercase text-gray-500">Requested</th>
+                    <th className="px-6 py-3 text-[0.65rem] font-semibold uppercase text-gray-500 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {accessRequests.map(req => (
+                    <tr key={req.id} className="hover:bg-amber-50/30 transition-colors">
+                      <td className="px-6 py-3 font-medium text-gray-900">{req.email}</td>
+                      <td className="px-6 py-3 text-gray-600">{req.full_name}</td>
+                      <td className="px-6 py-3 text-xs text-gray-400">
+                        {new Date(req.created_at).toLocaleDateString('en-GB')}
+                      </td>
+                      <td className="px-6 py-3 text-right space-x-2">
+                        <button
+                          onClick={() => handleApproveRequest(req.id)}
+                          disabled={processingRequestId === req.id}
+                          className="text-[0.65rem] font-bold uppercase tracking-wider px-3 py-1.5 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 transition"
+                        >
+                          {processingRequestId === req.id ? '...' : 'Approve'}
+                        </button>
+                        <button
+                          onClick={() => handleRejectRequest(req.id)}
+                          disabled={processingRequestId === req.id}
+                          className="text-[0.65rem] font-bold uppercase tracking-wider px-3 py-1.5 bg-red-100 text-red-600 rounded hover:bg-red-200 disabled:opacity-50 transition"
+                        >
+                          Reject
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -226,12 +381,20 @@ export default function UserManagementPage() {
                     <td className="px-6 py-3 text-xs text-gray-400">
                       {user.created_at ? new Date(user.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                     </td>
-                    <td className="px-6 py-3 text-right">
+                    <td className="px-6 py-3 text-right space-x-2">
                       <button
                         onClick={() => setResetPwdUser(user)}
-                        className="text-[0.65rem] font-bold uppercase tracking-wider px-3 py-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 hover:text-black transition"
+                        title="Reset Password"
+                        className="text-[0.65rem] font-bold uppercase tracking-wider px-3 py-1.5 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 hover:text-black transition inline-block"
                       >
                         Reset Pwd
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteUser(user)}
+                        title="Delete User"
+                        className="text-[0.65rem] font-bold uppercase tracking-wider px-3 py-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100 transition inline-block border border-red-100"
+                      >
+                        Delete
                       </button>
                     </td>
                   </tr>
