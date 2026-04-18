@@ -4,6 +4,8 @@ import { useState, useMemo } from 'react';
 import FilterBar from './FilterBar';
 import StatusBadge from './StatusBadge';
 import type { SheetDef } from '../lib/sheet-config';
+import { convertToCSV, downloadCSV } from '@/lib/export-utils';
+import toast from 'react-hot-toast';
 import { useRole } from '@/lib/useRole';
 import { canEdit, canDelete } from '@/lib/permissions';
 
@@ -110,6 +112,17 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
     setCurrentPage(1);
   };
 
+  const handleExportCSV = () => {
+    if (filteredData.length === 0) {
+      toast.error('No data to export.');
+      return;
+    }
+    const columns = config.columns.filter(c => !c.auto).map(c => ({ key: c.key, label: c.label }));
+    const csvContent = convertToCSV(filteredData, columns);
+    downloadCSV(config.label.replace(/\s+/g, '_'), csvContent);
+    toast.success(`Exported ${filteredData.length} rows.`);
+  };
+
   return (
     <div className="overflow-hidden flex flex-col h-[75vh] bg-white border border-gray-200 rounded-lg shadow-sm">
       
@@ -121,6 +134,7 @@ export default function GenericTable({ config, data = [], isLoading, onEdit, onD
         yearFilter={yearFilter ?? null}
         onYearFilterChange={config.hasYearFilter ? onYearFilterChange : undefined}
         yearOptions={yearOptions}
+        onExportCSV={handleExportCSV}
       />
 
       <div className="flex-1 overflow-auto relative">

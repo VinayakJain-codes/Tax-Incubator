@@ -26,11 +26,11 @@ const JURISDICTION_OPTIONS = ['UAE', 'UK', 'EU', 'US', 'Germany', 'Italy', 'Irel
 const AUDIT_STATUS_OPTIONS = ['Not Required', 'Planned', 'In Progress', 'Completed', 'Qualified', 'Overdue'];
 const REGULATORY_GROUP_OPTIONS = ['Corporate Tax', 'Corporation Tax', 'Federal & State Tax', 'VAT Regime', 'CT+VAT', 'Other'];
 const ENTITY_STATUS_OPTIONS = ['Active', 'Dormant', 'In Corporation', 'Liquidation', 'Struck Off', 'Other'];
-const HOLDING_COMPANY_OPTIONS = ['Group Parent Ltd', 'Holdings LLC', 'Test', 'Other'];
+
 const CURRENCY_OPTIONS = ['AED', 'EUR', 'GBP', 'USD', 'CHF', 'SAR', 'Other'];
 const FILING_FREQUENCY_OPTIONS = ['Monthly', 'Quarterly', 'Semi-Annual', 'Annual', 'Ad-hoc'];
 const SIGNING_AUTHORITY_OPTIONS = ['Single', 'Joint', 'Any Two', 'Board Resolution Required', 'Other'];
-const CONTROL_STATUS_OPTIONS = ['Open', 'In Progress', 'Closed', 'On Hold'];
+
 const RISK_RATING_OPTIONS = ['Low', 'Medium', 'High', 'Critical'];
 const DOCUMENT_STATUS_OPTIONS = ['Missing', 'Available', 'Expired', 'Renewal in Progress'];
 const ADDRESS_TYPE_OPTIONS = ['Registered', 'Admin', 'Operational', 'Other'];
@@ -59,7 +59,7 @@ export const SHEET_CONFIG: Record<string, SheetDef> = {
       { key: 'entity_id',             label: 'Entity ID',                              type: 'text',         editable: true,  required: true },
       { key: 'legal_name',            label: 'Entity Legal Name',                      type: 'text',         editable: true,  required: true },
       { key: 'trading_name',          label: 'Trading Name',                           type: 'text',         editable: true },
-      { key: 'holding_company',       label: 'Holding Company',                        type: 'status',       editable: true, options: HOLDING_COMPANY_OPTIONS },
+      { key: 'holding_company',       label: 'Holding Company',                        type: 'text',         editable: true },
       { key: 'jurisdiction',          label: 'Jurisdiction',                           type: 'jurisdiction', editable: true, options: JURISDICTION_OPTIONS },
       { key: 'address_type',          label: 'Address Type',                           type: 'status',       editable: true, options: ADDRESS_TYPE_OPTIONS },
       { key: 'full_address',          label: 'Full Address',                           type: 'text',         editable: true },
@@ -329,28 +329,6 @@ export const SHEET_CONFIG: Record<string, SheetDef> = {
       { key: 'uploaded_by',        label: 'Uploaded By',          type: 'text',   editable: true },
       { key: 'upload_date',        label: 'Upload Date',          type: 'date',   editable: true },
       { key: 'notes',              label: 'Notes',                type: 'text',   editable: true },
-    ],
-  },
-
-  'controls': {
-    table: 'controls_log',
-    label: 'Controls Log',
-    sortDefault: 'due_date',
-    filters: ['risk_rating', 'status', 'control_type'],
-    editableFields: ['control_id', 'date_logged', 'entity_id', 'control_type', 'description', 'owner', 'risk_rating', 'status', 'evidence_link', 'due_date', 'closure_date', 'comments'],
-    columns: [
-      { key: 'control_id',    label: 'Control ID',   type: 'text',   editable: true },
-      { key: 'date_logged',   label: 'Date Logged',  type: 'date',   editable: true },
-      { key: 'entity_id',     label: 'Entity ID',    type: 'text',   editable: true },
-      { key: 'control_type',  label: 'Control Type', type: 'text',   editable: true },
-      { key: 'description',   label: 'Description',  type: 'text',   editable: true },
-      { key: 'owner',         label: 'Owner',        type: 'text',   editable: true },
-      { key: 'risk_rating',   label: 'Risk Rating',  type: 'status', editable: true, options: RISK_RATING_OPTIONS },
-      { key: 'status',        label: 'Status',       type: 'status', editable: true, options: CONTROL_STATUS_OPTIONS },
-      { key: 'evidence_link', label: 'Evidence Link',type: 'text',   editable: true },
-      { key: 'due_date',      label: 'Due Date',     type: 'date',   editable: true },
-      { key: 'closure_date',  label: 'Closure Date', type: 'date',   editable: true },
-      { key: 'comments',      label: 'Comments',     type: 'text',   editable: true },
     ],
   },
 

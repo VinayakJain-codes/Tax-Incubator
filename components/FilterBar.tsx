@@ -9,11 +9,12 @@ interface FilterBarProps {
   yearFilter?: number | null;
   onYearFilterChange?: (year: number | null) => void;
   yearOptions?: number[];
+  onExportCSV?: () => void;
 }
 
 export default function FilterBar({
   search, onSearch, filterOptions, activeFilters, onFilterChange,
-  yearFilter, onYearFilterChange, yearOptions = [],
+  yearFilter, onYearFilterChange, yearOptions = [], onExportCSV,
 }: FilterBarProps) {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
@@ -41,22 +42,34 @@ export default function FilterBar({
           />
         </div>
 
-        {/* Filter Toggle Button */}
-        <button
-          onClick={() => setFiltersOpen(o => !o)}
-          className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors duration-200 ${
-            activeCount > 0
-              ? 'bg-gray-900 text-white border-gray-900 hover:bg-gray-700'
-              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-          }`}
-        >
-          <span>⊟ Filters</span>
-          {activeCount > 0 && (
-            <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-white text-gray-900">
-              {activeCount}
-            </span>
+        {/* Filter Toggle + Export */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setFiltersOpen(o => !o)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors duration-200 ${
+              activeCount > 0
+                ? 'bg-gray-900 text-white border-gray-900 hover:bg-gray-700'
+                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+            }`}
+          >
+            <span>⊟ Filters</span>
+            {activeCount > 0 && (
+              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold rounded-full bg-white text-gray-900">
+                {activeCount}
+              </span>
+            )}
+          </button>
+
+          {/* Export CSV Button */}
+          {onExportCSV && (
+            <button
+              onClick={onExportCSV}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors duration-200 bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+            >
+              ⤓ Export CSV
+            </button>
           )}
-        </button>
+        </div>
       </div>
 
       {/* Collapsible Filter Panel */}

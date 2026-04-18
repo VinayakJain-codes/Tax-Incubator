@@ -292,6 +292,48 @@ export default function EditModal({ isOpen, onClose, config, initialData, onSave
                   );
                 }
 
+                // ── Holding Company: Dynamic dropdown from entities ──
+                if (col.key === 'holding_company') {
+                  const holdingOptions = Array.from(new Set(entities.map(e => e.legal_name).filter(Boolean))).sort();
+                  const isCustom = val && !holdingOptions.includes(val);
+                  return (
+                    <div key={col.key}>
+                      <label className="block text-[0.65rem] font-semibold uppercase mb-2 text-gray-500" style={{ letterSpacing: '0.08em' }}>
+                        {col.label}
+                      </label>
+                      {fieldFrozen ? (
+                        <input type="text" value={val} readOnly className="w-full px-3 py-2 text-sm focus:outline-none cursor-not-allowed" style={frozenStyle} />
+                      ) : (
+                        <div className="space-y-2">
+                          <select
+                            value={isCustom ? '__other__' : val}
+                            onChange={e => handleChange(col.key, e.target.value === '__other__' ? '' : e.target.value)}
+                            className="w-full px-3 py-2 text-sm focus:outline-none"
+                            style={inputStyle}
+                          >
+                            <option value="">— Select Holding Company —</option>
+                            {holdingOptions.map(name => (
+                              <option key={name} value={name}>{name}</option>
+                            ))}
+                            <option value="__other__">Other (type manually)</option>
+                          </select>
+                          {(val === '' && formData[col.key] === '') ? null : isCustom || val === '__other__' ? (
+                            <input
+                              type="text"
+                              placeholder="Specify holding company..."
+                              value={isCustom ? val : ''}
+                              onChange={e => handleChange(col.key, e.target.value)}
+                              className="w-full px-3 py-2 text-sm focus:outline-none"
+                              style={{ ...inputStyle, borderColor: '#60A5FA' }}
+                              autoFocus
+                            />
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <div key={col.key}>
                     <label className="block text-[0.65rem] font-semibold uppercase mb-2 text-gray-500" style={{ letterSpacing: '0.08em' }}>

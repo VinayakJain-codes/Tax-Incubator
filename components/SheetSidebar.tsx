@@ -37,10 +37,9 @@ const navSections = [
     ],
   },
   {
-    title: 'CONTROLS & DOCUMENTS',
+    title: 'DOCUMENTS',
     items: [
       { href: '/sheets/documents', label: 'Document Control', icon: '▨', minRole: 'viewer' as const },
-      { href: '/sheets/controls', label: 'Controls Log', icon: '◆', minRole: 'viewer' as const },
     ],
   },
   {
